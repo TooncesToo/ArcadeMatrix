@@ -2,6 +2,7 @@
 #include <core/EngineRegistry.h>
 #include <ArduinoJson.h>
 #include "../core/SDUtils.h"
+#include <functional>
 #include <Update.h>
 #include "../core/MatrixEngine.h"
 #include "../engines/GifEngine.h"
@@ -1722,6 +1723,366 @@ void WebServerAPI::setupRoutes() {
             }
         }
     });
+
+    // =====================================================================================
+    // GIF LIBRARY MANAGEMENT (parity with ArcadeMatrix_RPI: /api/gifs/*)
+    //   GET    /api/gifs/library                  -> live scan of /gifs (folders + counts)
+    //   POST   /api/gifs/upload?folder=<Name>     -> multipart upload of one or many files
+    //   POST   /api/gifs/reindex                  -> rebuild index.txt + playlists.json
+    //   DELETE /api/gifs/file?folder=<N>&name=<F> -> delete one file, refresh indexes
+    // =====================================================================================
+    {
+        struct GifUploadCtx {
+            String folder;
+            FsFile file;
+            String currentName;
+            bool currentOk = false;
+            size_t currentBytes = 0;
+            String saved;    // JSON array body (without brackets)
+            String skipped;  // JSON array body of {"name","reason"}
+            int savedCount = 0;
+            bool engineStopped = false;
+            bool badFolder = false;
+            ~GifUploadCtx() { if (file) file.close(); }
+        };
+
+        static auto sanitizeName = [](const String& in, bool allowExt) -> String {
+            String s = in;
+            int slash = s.lastIndexOf('/'); if (slash >= 0) s = s.substring(slash + 1);
+            slash = s.lastIndexOf('\\'); if (slash >= 0) s = s.substring(slash + 1);
+            String out = "";
+            for (size_t i = 0; i < s.length(); i++) {
+                char c = s[i];
+                bool ok = isalnum((unsigned char)c) || c == '_' || c == '-' || c == ' ' || (allowExt && c == '.');
+                if (ok) out += c;
+            }
+            out.trim();
+            while (out.startsWith(".")) out = out.substring(1);
+            if (out.length() > 64) out = out.substring(0, 64);
+            return out;
+        };
+        static auto hasGifExt = [](const String& name) -> bool {
+            String l = name; l.toLowerCase();
+            return l.endsWith(".gif") || l.endsWith(".png") || l.endsWith(".raw");
+        };
+        static auto jsonEsc = [](const String& s) -> String {
+            String o = ""; for (size_t i = 0; i < s.length(); i++) { char c = s[i]; if (c == '"' || c == '\\') o += '\\'; o += c; } return o;
+        };
+
+        // List media files of one folder (sorted order not required by the engine).
+        static auto listFolderFiles = [](const String& folderPath, std::vector<String>& out) {
+            out.clear();
+            FsFile dir = sd.open(folderPath.c_str(), FILE_OPEN_READ);
+            if (!dir || !isDirectory(dir)) return;
+            FsFile f;
+            while (getNextFile(dir, f)) {
+                if (isDirectory(f)) continue;
+                String n = getFileName(f);
+                int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
+                if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
+            }
+            dir.close();
+        };
+
+        // Rewrite <root>/<folder>/index.txt from the real directory contents.
+        static auto writeFolderIndex = [](const String& root, const String& folder) -> int {
+            std::vector<String> files; listFolderFiles(root + "/" + folder, files);
+            String idxPath = root + "/" + folder + "/index.txt";
+            FsFile idx = sd.open(idxPath.c_str(), FILE_OPEN_WRITE);
+            if (idx) { for (auto& n : files) { idx.print(n); idx.print('\n'); } idx.close(); }
+            return (int)files.size();
+        };
+
+        // Rewrite <root>/playlists.json from the real directory contents (same shape as generate_index.sh).
+        static auto writePlaylistsJson = [](const String& root) -> String {
+            String json = "{"; bool first = true;
+            FsFile dir = sd.open(root.c_str(), FILE_OPEN_READ);
+            if (dir && isDirectory(dir)) {
+                FsFile f;
+                while (getNextFile(dir, f)) {
+                    if (!isDirectory(f)) continue;
+                    String name = getFileName(f); int ls = name.lastIndexOf('/'); if (ls >= 0) name = name.substring(ls + 1);
+                    if (isMacJunk(name)) continue;
+                    int count = writeFolderIndex(root, name);
+                    if (count <= 0) continue;
+                    if (!first) json += ",";
+                    json += "\"" + jsonEsc(name) + "\":{\"path\":\"" + root + "/" + jsonEsc(name) + "\",\"count\":" + String(count) + "}";
+                    first = false;
+                }
+                dir.close();
+            }
+            json += "}";
+            String plPath = root + "/playlists.json";
+            FsFile pl = sd.open(plPath.c_str(), FILE_OPEN_WRITE);
+            if (pl) { pl.print(json); pl.close(); }
+            return json;
+        };
+
+        // Live library scan (does NOT touch index files).
+        static auto scanLibrary = [](const String& root) -> String {
+            String json = "{"; bool first = true;
+            FsFile dir = sd.open(root.c_str(), FILE_OPEN_READ);
+            if (dir && isDirectory(dir)) {
+                FsFile f;
+                while (getNextFile(dir, f)) {
+                    if (!isDirectory(f)) continue;
+                    String name = getFileName(f); int ls = name.lastIndexOf('/'); if (ls >= 0) name = name.substring(ls + 1);
+                    if (isMacJunk(name)) continue;
+                    std::vector<String> files; listFolderFiles(root + "/" + name, files);
+                    if (!first) json += ",";
+                    json += "\"" + jsonEsc(name) + "\":{\"path\":\"" + root + "/" + jsonEsc(name) + "\",\"count\":" + String(files.size()) + "}";
+                    first = false;
+                }
+                dir.close();
+            }
+            json += "}";
+            return json;
+        };
+
+        server.on("/api/gifs/library", HTTP_GET, [](AsyncWebServerRequest *request){
+            String folders = "{}";
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) { folders = scanLibrary("/gifs"); xSemaphoreGive(sdMutex); }
+            request->send(200, "application/json", "{\"root\":\"/gifs\",\"folders\":" + folders + "}");
+        });
+
+        server.on("/api/gifs/reindex", HTTP_POST, [](AsyncWebServerRequest *request){
+            String folders = "{}";
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
+                folders = writePlaylistsJson("/gifs");
+                if (sd.exists("/gifs_tate")) writePlaylistsJson("/gifs_tate");
+                xSemaphoreGive(sdMutex);
+            } else {
+                request->send(503, "application/json", "{\"status\":\"error\",\"message\":\"SD busy\"}");
+                return;
+            }
+            request->send(200, "application/json", "{\"status\":\"ok\",\"root\":\"/gifs\",\"folders\":" + folders + "}");
+        });
+
+        server.on("/api/gifs/file", HTTP_DELETE, [](AsyncWebServerRequest *request){
+            String rawFolder = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String rawName   = request->hasParam("name")   ? request->getParam("name")->value()   : "";
+            String folder = sanitizeName(rawFolder, false);
+            String name   = sanitizeName(rawName, true);
+            if (rawFolder.indexOf('/') >= 0 || rawName.indexOf('/') >= 0 || rawFolder.indexOf("..") >= 0 || rawName.indexOf("..") >= 0 || folder.isEmpty() || name.isEmpty() || !hasGifExt(name)) {
+                request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder and name (.gif/.png/.raw) are required\"}");
+                return;
+            }
+            String path = "/gifs/" + folder + "/" + name;
+            bool removed = false;
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                if (sd.exists(path.c_str())) removed = sd.remove(path.c_str());
+                if (removed) { writeFolderIndex("/gifs", folder); writePlaylistsJson("/gifs"); }
+                xSemaphoreGive(sdMutex);
+            }
+            if (!removed) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"File not found\"}"); return; }
+            request->send(200, "application/json", "{\"status\":\"ok\",\"deleted\":\"" + jsonEsc(path) + "\"}");
+        });
+
+        server.on("/api/gifs/files", HTTP_GET, [](AsyncWebServerRequest *request){
+            String raw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String folder = sanitizeName(raw, false);
+            if (raw.indexOf('/') >= 0 || raw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder is required\"}"); return; }
+            String path = "/gifs/" + folder; String json = "["; bool first = true; bool found = false;
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
+                if (dir && isDirectory(dir)) {
+                    found = true; FsFile f;
+                    while (getNextFile(dir, f)) {
+                        if (isDirectory(f)) continue;
+                        String n = getFileName(f); int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
+                        if (isMacJunk(n) || n == "index.txt" || !hasGifExt(n)) continue;
+                        if (!first) json += ","; first = false;
+                        json += "{\"name\":\"" + jsonEsc(n) + "\",\"bytes\":" + String((unsigned long)f.size()) + "}";
+                    }
+                    dir.close();
+                }
+                xSemaphoreGive(sdMutex);
+            }
+            json += "]";
+            if (!found) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"Folder not found\"}"); return; }
+            request->send(200, "application/json", "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"files\":" + json + "}");
+        });
+
+        // recursive folder delete (playlist folders may hold subfolders, e.g. Logo/256)
+        static std::function<int(const String&)> removeTree = [](const String& path) -> int {
+            int n = 0; std::vector<String> subdirs; std::vector<String> files;
+            FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
+            if (!dir || !isDirectory(dir)) return 0;
+            FsFile f;
+            while (getNextFile(dir, f)) {
+                String nm = getFileName(f); int ls = nm.lastIndexOf('/'); if (ls >= 0) nm = nm.substring(ls + 1);
+                if (isDirectory(f)) subdirs.push_back(path + "/" + nm); else files.push_back(path + "/" + nm);
+            }
+            dir.close();
+            for (auto& fp : files) { if (sd.remove(fp.c_str())) n++; }
+            for (auto& sp : subdirs) n += removeTree(sp);
+            sd.rmdir(path.c_str());
+            return n;
+        };
+
+        server.on("/api/gifs/folder", HTTP_DELETE, [](AsyncWebServerRequest *request){
+            String raw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String folder = sanitizeName(raw, false);
+            if (raw.indexOf('/') >= 0 || raw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder is required\"}"); return; }
+            String path = "/gifs/" + folder; int n = -1;
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(30000))) {
+                if (sd.exists(path.c_str())) {
+                    extern GifEngine* gifEngine; if (gifEngine) gifEngine->stop();
+                    n = removeTree(path); writePlaylistsJson("/gifs");
+                }
+                xSemaphoreGive(sdMutex);
+            }
+            if (n < 0) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"Folder not found\"}"); return; }
+            request->send(200, "application/json", "{\"status\":\"ok\",\"deleted\":\"" + jsonEsc(path) + "\",\"files\":" + String(n) + "}");
+        });
+
+        static auto badName = [](const String& raw) -> bool { return raw.indexOf('/') >= 0 || raw.indexOf('\\') >= 0 || raw.indexOf("..") >= 0; };
+
+        server.on("/api/gifs/mkdir", HTTP_POST, [](AsyncWebServerRequest *request){
+            String raw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String folder = sanitizeName(raw, false);
+            if (badName(raw) || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain name\"}"); return; }
+            String path = "/gifs/" + folder; int code = 500; String msg = "SD busy";
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                if (sd.exists(path.c_str())) { code = 409; msg = "Folder already exists"; }
+                else if (sd.mkdir(path.c_str())) { code = 200; }
+                else { msg = "mkdir failed"; }
+                if (code == 200) writePlaylistsJson("/gifs");
+                xSemaphoreGive(sdMutex);
+            }
+            if (code != 200) { request->send(code, "application/json", "{\"status\":\"error\",\"message\":\"" + msg + "\"}"); return; }
+            request->send(200, "application/json", "{\"status\":\"ok\",\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\"}");
+        });
+
+        // rename a file (folder+name+to) or a folder (folder+to)
+        server.on("/api/gifs/rename", HTTP_POST, [](AsyncWebServerRequest *request){
+            String rawFolder = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String rawName   = request->hasParam("name")   ? request->getParam("name")->value()   : "";
+            String rawTo     = request->hasParam("to")     ? request->getParam("to")->value()     : "";
+            String folder = sanitizeName(rawFolder, false);
+            if (badName(rawFolder) || badName(rawName) || badName(rawTo) || folder.isEmpty() || rawTo.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder and to are required (plain names)\"}"); return; }
+            String from, to, what;
+            if (rawName.isEmpty()) {
+                String toFolder = sanitizeName(rawTo, false); if (toFolder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"bad target name\"}"); return; }
+                from = "/gifs/" + folder; to = "/gifs/" + toFolder; what = to;
+            } else {
+                String name = sanitizeName(rawName, true); String toName = sanitizeName(rawTo, true);
+                if (!hasGifExt(toName)) { int d = name.lastIndexOf('.'); if (d >= 0) toName += name.substring(d); }
+                if (name.isEmpty() || toName.isEmpty() || !hasGifExt(toName)) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"bad file name\"}"); return; }
+                from = "/gifs/" + folder + "/" + name; to = "/gifs/" + folder + "/" + toName; what = to;
+            }
+            int code = 500; String msg = "SD busy";
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                if (!sd.exists(from.c_str())) { code = 404; msg = "Source not found"; }
+                else if (sd.exists(to.c_str())) { code = 409; msg = "Target already exists"; }
+                else if (sd.rename(from.c_str(), to.c_str())) { code = 200; }
+                else { msg = "rename failed"; }
+                if (code == 200) { if (rawName.isEmpty()) writePlaylistsJson("/gifs"); else writeFolderIndex("/gifs", folder); }
+                xSemaphoreGive(sdMutex);
+            }
+            if (code != 200) { request->send(code, "application/json", "{\"status\":\"error\",\"message\":\"" + msg + "\"}"); return; }
+            request->send(200, "application/json", "{\"status\":\"ok\",\"renamed_to\":\"" + jsonEsc(what) + "\"}");
+        });
+
+        // serve one media file (inline preview, or attachment with ?download=1) — chunked from the SD under the mutex
+        server.on("/api/gifs/file", HTTP_GET, [](AsyncWebServerRequest *request){
+            String rawFolder = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            String rawName   = request->hasParam("name")   ? request->getParam("name")->value()   : "";
+            String folder = sanitizeName(rawFolder, false); String name = sanitizeName(rawName, true);
+            if (badName(rawFolder) || badName(rawName) || folder.isEmpty() || name.isEmpty() || !hasGifExt(name)) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder and name are required\"}"); return; }
+            String path = "/gifs/" + folder + "/" + name;
+            struct FileCtx { FsFile f; size_t size = 0; };
+            FileCtx* ctx = new FileCtx();
+            bool ok = false;
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                if (sd.exists(path.c_str())) { ctx->f = sd.open(path.c_str(), FILE_OPEN_READ); ok = (bool)ctx->f; if (ok) ctx->size = ctx->f.size(); }
+                xSemaphoreGive(sdMutex);
+            }
+            if (!ok) { delete ctx; request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"File not found\"}"); return; }
+            String lower = name; lower.toLowerCase();
+            const char* mime = lower.endsWith(".png") ? "image/png" : lower.endsWith(".gif") ? "image/gif" : "application/octet-stream";
+            AsyncWebServerResponse* resp = request->beginResponse(mime, ctx->size, [ctx](uint8_t* buf, size_t maxLen, size_t index) -> size_t {
+                size_t n = 0;
+                if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) { n = ctx->f.read(buf, maxLen); xSemaphoreGive(sdMutex); }
+                return n;
+            });
+            resp->addHeader("Cache-Control", "no-cache");
+            if (request->hasParam("download") && request->getParam("download")->value() == "1") resp->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
+            request->onDisconnect([ctx]() { if (ctx->f) ctx->f.close(); delete ctx; });
+            request->send(resp);
+        });
+
+        server.on("/api/gifs/upload", HTTP_POST,
+            [](AsyncWebServerRequest *request) {
+                GifUploadCtx* ctx = (GifUploadCtx*)request->_tempObject;
+                if (!ctx) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"No file received\"}"); return; }
+                if (ctx->badFolder) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name (no path separators)\"}"); delete ctx; request->_tempObject = nullptr; return; }
+                if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
+                    if (ctx->savedCount > 0) { writeFolderIndex("/gifs", ctx->folder); writePlaylistsJson("/gifs"); }
+                    xSemaphoreGive(sdMutex);
+                }
+                String body = "{\"status\":\"" + String(ctx->savedCount > 0 ? "ok" : "error") + "\",\"folder\":\"" + jsonEsc(ctx->folder) +
+                              "\",\"count\":" + String(ctx->savedCount) + ",\"saved\":[" + ctx->saved + "],\"skipped\":[" + ctx->skipped + "]}";
+                request->send(ctx->savedCount > 0 ? 200 : 400, "application/json", body);
+                delete ctx; request->_tempObject = nullptr;
+            },
+            [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+                GifUploadCtx* ctx = (GifUploadCtx*)request->_tempObject;
+                if (!ctx) {
+                    ctx = new GifUploadCtx();
+                    String rawFolder = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+                    ctx->badFolder = rawFolder.indexOf('/') >= 0 || rawFolder.indexOf('\\') >= 0 || rawFolder.indexOf("..") >= 0;
+                    ctx->folder = ctx->badFolder ? "" : sanitizeName(rawFolder, false);
+                    if (ctx->folder.isEmpty() && !ctx->badFolder) ctx->folder = "Uploads";
+                    request->_tempObject = ctx;
+                    // free the context if the client disconnects mid-upload (the final handler nulls _tempObject after deleting it)
+                    request->onDisconnect([request]() { if (request->_tempObject) { delete (GifUploadCtx*)request->_tempObject; request->_tempObject = nullptr; } });
+                    extern GifEngine* gifEngine;
+                    if (gifEngine) { gifEngine->stop(); ctx->engineStopped = true; }   // no concurrent SD reads during the write
+                    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                        if (!sd.exists("/gifs")) sd.mkdir("/gifs");
+                        String fp = "/gifs/" + ctx->folder; if (!sd.exists(fp.c_str())) sd.mkdir(fp.c_str());
+                        xSemaphoreGive(sdMutex);
+                    }
+                }
+                if (ctx->badFolder) return;   // rejected folder name: swallow the body, final handler answers 400
+                if (index == 0) {
+                    // new part begins: close any previous file
+                    if (ctx->file) ctx->file.close();
+                    ctx->currentName = sanitizeName(filename, true); ctx->currentBytes = 0; ctx->currentOk = false;
+                    if (ctx->currentName.isEmpty() || !hasGifExt(ctx->currentName)) {
+                        if (ctx->skipped.length()) ctx->skipped += ",";
+                        ctx->skipped += "{\"name\":\"" + jsonEsc(filename) + "\",\"reason\":\"unsupported type\"}";
+                    } else if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                        String path = "/gifs/" + ctx->folder + "/" + ctx->currentName;
+                        ctx->file = sd.open(path.c_str(), FILE_OPEN_WRITE);
+                        ctx->currentOk = (bool)ctx->file;
+                        xSemaphoreGive(sdMutex);
+                        if (!ctx->currentOk) { if (ctx->skipped.length()) ctx->skipped += ","; ctx->skipped += "{\"name\":\"" + jsonEsc(ctx->currentName) + "\",\"reason\":\"open failed\"}"; }
+                    }
+                }
+                if (ctx->currentOk && len > 0) {
+                    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                        size_t w = ctx->file.write(data, len); ctx->currentBytes += w;
+                        if (w != len) { ctx->currentOk = false; }
+                        xSemaphoreGive(sdMutex);
+                    }
+                }
+                if (final) {
+                    if (ctx->file) { if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) { ctx->file.close(); xSemaphoreGive(sdMutex); } }
+                    if (ctx->currentOk) {
+                        if (ctx->saved.length()) ctx->saved += ",";
+                        ctx->saved += "{\"name\":\"" + jsonEsc(ctx->currentName) + "\",\"bytes\":" + String(ctx->currentBytes) + "}";
+                        ctx->savedCount++;
+                        LOGI("GIFS", "Uploaded /gifs/%s/%s (%u bytes)", ctx->folder.c_str(), ctx->currentName.c_str(), (unsigned)ctx->currentBytes);
+                    } else if (!ctx->currentName.isEmpty() && hasGifExt(ctx->currentName)) {
+                        if (ctx->skipped.length()) ctx->skipped += ",";
+                        ctx->skipped += "{\"name\":\"" + jsonEsc(ctx->currentName) + "\",\"reason\":\"write failed\"}";
+                    }
+                    ctx->currentOk = false;
+                }
+            });
+    }
 
     // API: Wi-Fi (re)configuration with an immediate connection attempt (parity with the RPi's
     // /api/wifi). Unlike the generic /api/settings handler, this persists the new credentials to
