@@ -568,6 +568,192 @@ paths:
         '400':
           description: No file received or upload error.
 
+  /api/gifs/library:
+    get:
+      tags:
+        - GIF Library
+      summary: List playlist folders
+      description: Live scan of the gifs root. Returns every playlist folder with its media file count.
+      responses:
+        '200':
+          description: '`{"root":"/gifs","folders":{"Arcade":{"path":"/gifs/Arcade","count":120}}}`'
+
+  /api/gifs/files:
+    get:
+      tags:
+        - GIF Library
+      summary: List files of one playlist folder
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Plain playlist folder name (no path separators)
+      responses:
+        '200':
+          description: '`{"folder":"Arcade","path":"/gifs/Arcade","files":[{"name":"a.gif","bytes":1234}]}`'
+        '400':
+          description: Missing or invalid folder name.
+        '404':
+          description: Folder not found.
+
+  /api/gifs/file:
+    get:
+      tags:
+        - GIF Library
+      summary: Serve one media file (preview or download)
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: File name (.gif, .png or .raw)
+        - name: download
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Set to `1` to receive a `Content-Disposition: attachment` header.
+      responses:
+        '200':
+          description: The file bytes with an image content type.
+        '404':
+          description: File not found.
+    delete:
+      tags:
+        - GIF Library
+      summary: Delete one media file
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: '`{"status":"ok","deleted":"/gifs/Arcade/a.gif"}`'
+        '404':
+          description: File not found.
+
+  /api/gifs/upload:
+    post:
+      tags:
+        - GIF Library
+      summary: Upload one or many media files into a playlist folder
+      description: Multipart upload; every `file` part is written to `/gifs/<folder>/<basename>`. The folder is created when missing. Unsupported types are reported in `skipped`. Names are sanitized to plain file names.
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Target playlist folder (plain name, no path separators)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: '`{"status":"ok","folder":"Arcade","count":2,"saved":[{"name":"a.gif","bytes":1234}],"skipped":[{"name":"notes.txt","reason":"unsupported type"}]}`'
+        '400':
+          description: Invalid folder name, or no file could be saved.
+
+  /api/gifs/mkdir:
+    post:
+      tags:
+        - GIF Library
+      summary: Create a playlist folder
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Folder created.
+        '409':
+          description: Folder already exists.
+
+  /api/gifs/rename:
+    post:
+      tags:
+        - GIF Library
+      summary: Rename a playlist folder or one of its files
+      description: Without `name` the folder itself is renamed to `to`; with `name` that file is renamed (a bare `to` keeps the original extension). Index files are refreshed.
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: '`{"status":"ok","renamed_to":"/gifs/NewName"}`'
+        '404':
+          description: Source not found.
+        '409':
+          description: Target already exists.
+
+  /api/gifs/reindex:
+    post:
+      tags:
+        - GIF Library
+      summary: Rebuild the playlist indexes
+      description: Rewrites every folder's `index.txt` and `/gifs/playlists.json` from the real directory contents, then returns the library.
+      responses:
+        '200':
+          description: Same shape as `/api/gifs/library` plus `status`.
+        '503':
+          description: SD card busy.
+
+  /api/gifs/folder:
+    delete:
+      tags:
+        - GIF Library
+      summary: Delete a playlist folder recursively
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: '`{"status":"ok","deleted":"/gifs/Arcade","files":120}`'
+        '404':
+          description: Folder not found.
+
   /api/marquee:
     post:
       tags:
