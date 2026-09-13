@@ -21,6 +21,7 @@
 #include "../hal/GyroHAL.h"
 
 extern RotationManager* rotationManager;
+extern GifEngine* gifEngine;
 
 // Helper class to stream large files from SdFat to ESPAsyncWebServer
 class AsyncSdFatResponse : public AsyncAbstractResponse {
@@ -92,7 +93,81 @@ void WebServerAPI::setVisualizerEngine(VisualizerEngine* engine) {
 
 extern String getPosixTimezone(String tz);
 
+// ---- GIF library: background full reindex -----------------------------------------------------------
+// A full directory walk of a large library (10k+ files) takes minutes on the S3's SD_MMC bus; doing it inside an
+// HTTP handler starves the async TCP task and trips the watchdog. The walk therefore runs in its own low-priority
+// task on core 0, one folder per sdMutex hold, while the rotation is suspended and the panel shows a notice.
+namespace {
+struct GifReindexState {
+    volatile bool running = false;
+    volatile int total = 0;
+    volatile int done = 0;
+    String current;
+    String lastResult;          // "ok: N folders" / "error: ..."
+    unsigned long startedMs = 0, finishedMs = 0;
+};
+GifReindexState g_gifReindex;
+MessageEngine* g_gifMsg = nullptr;
+std::function<int(const String&, const String&)> g_gifWriteFolderIndex;   // bound in begin()
+std::function<String(const String&)> g_gifBuildPlaylistsFromIndexes;      // bound in begin()
+std::function<bool(const String&)> g_gifIsMacJunk;                          // bound in begin()
+
+void gifReindexEnterMaintenance() {
+    if (gifEngine) gifEngine->stop();
+    if (rotationManager) rotationManager->setSuspended(true);
+    if (g_gifMsg) {
+        MessageConfig m; m.text = "Reindexing GIF library..."; m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
+        g_gifMsg->displayMessage(m);
+    }
+}
+void gifReindexLeaveMaintenance() {
+    if (g_gifMsg) g_gifMsg->deactivate();
+    if (rotationManager) rotationManager->setSuspended(false);
+}
+
+void gifReindexTask(void*) {
+    const String root = "/gifs";
+    std::vector<String> folders;
+    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
+        FsFile dir = sd.open(root.c_str(), FILE_OPEN_READ);
+        if (dir && isDirectory(dir)) {
+            FsFile f;
+            while (getNextFile(dir, f)) {
+                if (!isDirectory(f)) continue;
+                String name = getFileName(f); int ls = name.lastIndexOf('/'); if (ls >= 0) name = name.substring(ls + 1);
+                if (g_gifIsMacJunk && g_gifIsMacJunk(name)) continue;
+                folders.push_back(name);
+            }
+            dir.close();
+        }
+        xSemaphoreGive(sdMutex);
+    }
+    g_gifReindex.total = (int)folders.size();
+    for (auto& name : folders) {
+        g_gifReindex.current = name;
+        if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(30000))) {
+            if (g_gifWriteFolderIndex) g_gifWriteFolderIndex(root, name);
+            xSemaphoreGive(sdMutex);
+        }
+        g_gifReindex.done = g_gifReindex.done + 1;
+        vTaskDelay(pdMS_TO_TICKS(20));   // let the web server breathe between folders
+    }
+    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
+        if (g_gifBuildPlaylistsFromIndexes) g_gifBuildPlaylistsFromIndexes(root);
+        if (sd.exists("/gifs_tate") && g_gifBuildPlaylistsFromIndexes) g_gifBuildPlaylistsFromIndexes("/gifs_tate");
+        xSemaphoreGive(sdMutex);
+    }
+    g_gifReindex.lastResult = "ok: " + String(g_gifReindex.total) + " folders";
+    g_gifReindex.current = "";
+    g_gifReindex.finishedMs = millis();
+    gifReindexLeaveMaintenance();
+    g_gifReindex.running = false;
+    vTaskDelete(nullptr);
+}
+} // namespace
+
 void WebServerAPI::begin() {
+    g_gifMsg = msg;
     setupRoutes();
     
     // Default headers for CORS
@@ -1769,6 +1844,7 @@ void WebServerAPI::setupRoutes() {
             String saved;    // JSON array body (without brackets)
             String skipped;  // JSON array body of {"name","reason"}
             int savedCount = 0;
+            std::vector<String> savedNames;
             bool engineStopped = false;
             bool badFolder = false;
             bool modeOn = false;   // rotation suspended + "upload mode" notice on the panel
@@ -1871,6 +1947,94 @@ void WebServerAPI::setupRoutes() {
             return json;
         };
 
+        // ---- incremental index maintenance (no directory walks in request handlers) -------------------------
+        // index.txt is the source of truth per folder; playlists.json is rebuilt from the index line counts only.
+        static auto indexLineCount = [](const String& root, const String& folder) -> int {
+            String p = root + "/" + folder + "/index.txt";
+            FsFile f = sd.open(p.c_str(), FILE_OPEN_READ);
+            if (!f) return 0;
+            int n = 0; bool lastNl = true; uint8_t buf[256]; int r;
+            while ((r = f.read(buf, sizeof(buf))) > 0) { for (int i = 0; i < r; i++) if (buf[i] == '\n') n++; lastNl = (buf[r - 1] == '\n'); }
+            if (!lastNl) n++;
+            f.close();
+            return n;
+        };
+        // Rewrite index.txt once: current lines minus `remove` plus `add` (deduplicated). Returns the new count.
+        static auto updateFolderIndex = [](const String& root, const String& folder, const std::vector<String>& add, const std::vector<String>& remove) -> int {
+            String p = root + "/" + folder + "/index.txt";
+            std::vector<String> lines;
+            FsFile f = sd.open(p.c_str(), FILE_OPEN_READ);
+            if (f) {
+                while (f.available()) { String l = f.readStringUntil('\n'); l.trim(); if (l.length()) lines.push_back(l); }
+                f.close();
+            }
+            auto contains = [](const std::vector<String>& v, const String& x) { for (auto& e : v) if (e == x) return true; return false; };
+            std::vector<String> out;
+            for (auto& l : lines) if (!contains(remove, l) && !contains(out, l)) out.push_back(l);
+            for (auto& a : add) if (a.length() && !contains(out, a) && !contains(remove, a)) out.push_back(a);
+            FsFile w = sd.open(p.c_str(), FILE_OPEN_WRITE);
+            if (w) { for (auto& l : out) { w.print(l); w.print('\n'); } w.close(); }
+            return (int)out.size();
+        };
+        // playlists.json from the folders' index.txt line counts (cheap: one small read per folder, no file walks).
+        static auto buildPlaylistsFromIndexes = [](const String& root) -> String {
+            String json = "{"; bool first = true;
+            FsFile dir = sd.open(root.c_str(), FILE_OPEN_READ);
+            if (dir && isDirectory(dir)) {
+                FsFile f;
+                while (getNextFile(dir, f)) {
+                    if (!isDirectory(f)) continue;
+                    String name = getFileName(f); int ls = name.lastIndexOf('/'); if (ls >= 0) name = name.substring(ls + 1);
+                    if (isMacJunk(name)) continue;
+                    int count = indexLineCount(root, name);
+                    if (!first) json += ",";
+                    json += "\"" + jsonEsc(name) + "\":{\"path\":\"" + root + "/" + jsonEsc(name) + "\",\"count\":" + String(count) + "}";
+                    first = false;
+                }
+                dir.close();
+            }
+            json += "}";
+            String plPath = root + "/playlists.json";
+            FsFile pl = sd.open(plPath.c_str(), FILE_OPEN_WRITE);
+            if (pl) { pl.print(json); pl.close(); }
+            return json;
+        };
+        static auto readPlaylistsJson = [](const String& root) -> String {
+            String plPath = root + "/playlists.json";
+            FsFile pl = sd.open(plPath.c_str(), FILE_OPEN_READ);
+            if (!pl) return String();
+            String json; json.reserve(pl.size() + 16);
+            uint8_t buf[256]; int r;
+            while ((r = pl.read(buf, sizeof(buf))) > 0) for (int i = 0; i < r; i++) json += (char)buf[i];
+            pl.close();
+            json.trim();
+            return json.startsWith("{") ? json : String();
+        };
+        // Set (count >= 0) or remove (count < 0) one folder entry in playlists.json; falls back to a rebuild when the
+        // file is missing or unparsable. Returns the JSON written.
+        static auto updatePlaylistsEntry = [](const String& root, const String& folder, int count) -> String {
+            String cur = readPlaylistsJson(root);
+            if (cur.isEmpty()) cur = buildPlaylistsFromIndexes(root);
+            size_t cap = cur.length() * 2 + 1024; if (cap < 4096) cap = 4096; if (cap > 24576) cap = 24576;
+            DynamicJsonDocument doc(cap);
+            if (deserializeJson(doc, cur) != DeserializationError::Ok || !doc.is<JsonObject>()) {
+                cur = buildPlaylistsFromIndexes(root);
+                doc.clear();
+                if (deserializeJson(doc, cur) != DeserializationError::Ok) return cur;
+            }
+            JsonObject obj = doc.as<JsonObject>();
+            if (count < 0) obj.remove(folder);
+            else { JsonObject e = obj.containsKey(folder) ? obj[folder].as<JsonObject>() : obj.createNestedObject(folder); e["path"] = root + "/" + folder; e["count"] = count; }
+            String out; serializeJson(doc, out);
+            String plPath = root + "/playlists.json";
+            FsFile pl = sd.open(plPath.c_str(), FILE_OPEN_WRITE);
+            if (pl) { pl.print(out); pl.close(); }
+            return out;
+        };
+        g_gifWriteFolderIndex = writeFolderIndex;
+        g_gifBuildPlaylistsFromIndexes = buildPlaylistsFromIndexes;
+        g_gifIsMacJunk = isMacJunk;
+
         // Live library scan (does NOT touch index files).
         static auto scanLibrary = [](const String& root) -> String {
             String json = "{"; bool first = true;
@@ -1893,22 +2057,36 @@ void WebServerAPI::setupRoutes() {
         };
 
         server.on("/api/gifs/library", HTTP_GET, [](AsyncWebServerRequest *request){
+            // Served from playlists.json (kept current by the upload/delete/rename handlers); never walks the files here.
             String folders = "{}";
-            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) { folders = scanLibrary("/gifs"); xSemaphoreGive(sdMutex); }
-            request->send(200, "application/json", "{\"root\":\"/gifs\",\"folders\":" + folders + "}");
+            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                folders = readPlaylistsJson("/gifs");
+                if (folders.isEmpty()) folders = buildPlaylistsFromIndexes("/gifs");
+                xSemaphoreGive(sdMutex);
+            }
+            request->send(200, "application/json", "{\"root\":\"/gifs\",\"reindexing\":" + String(g_gifReindex.running ? "true" : "false") + ",\"folders\":" + folders + "}");
         });
 
+        // Full rescan of every folder from the real directory contents: runs in the background (202) — see gifReindexTask.
         server.on("/api/gifs/reindex", HTTP_POST, [](AsyncWebServerRequest *request){
-            String folders = "{}";
-            if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
-                folders = writePlaylistsJson("/gifs");
-                if (sd.exists("/gifs_tate")) writePlaylistsJson("/gifs_tate");
-                xSemaphoreGive(sdMutex);
-            } else {
-                request->send(503, "application/json", "{\"status\":\"error\",\"message\":\"SD busy\"}");
+            if (g_gifReindex.running) { request->send(409, "application/json", "{\"status\":\"busy\",\"message\":\"Reindex already running\"}"); return; }
+            g_gifReindex.running = true; g_gifReindex.total = 0; g_gifReindex.done = 0; g_gifReindex.current = ""; g_gifReindex.lastResult = "";
+            g_gifReindex.startedMs = millis(); g_gifReindex.finishedMs = 0;
+            gifReindexEnterMaintenance();
+            if (xTaskCreatePinnedToCore(gifReindexTask, "gif_reindex", 12288, nullptr, 1, nullptr, 0) != pdPASS) {
+                g_gifReindex.running = false; g_gifReindex.lastResult = "error: task";
+                gifReindexLeaveMaintenance();
+                request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Could not start reindex task\"}");
                 return;
             }
-            request->send(200, "application/json", "{\"status\":\"ok\",\"root\":\"/gifs\",\"folders\":" + folders + "}");
+            request->send(202, "application/json", "{\"status\":\"started\"}");
+        });
+        server.on("/api/gifs/reindex/status", HTTP_GET, [](AsyncWebServerRequest *request){
+            String j = "{\"running\":" + String(g_gifReindex.running ? "true" : "false") +
+                       ",\"total\":" + String(g_gifReindex.total) + ",\"done\":" + String(g_gifReindex.done) +
+                       ",\"current\":\"" + jsonEsc(g_gifReindex.current) + "\",\"last_result\":\"" + jsonEsc(g_gifReindex.lastResult) + "\"" +
+                       ",\"elapsed_ms\":" + String(g_gifReindex.running ? (millis() - g_gifReindex.startedMs) : (g_gifReindex.finishedMs ? g_gifReindex.finishedMs - g_gifReindex.startedMs : 0)) + "}";
+            request->send(200, "application/json", j);
         });
 
         server.on("/api/gifs/file", HTTP_DELETE, [](AsyncWebServerRequest *request){
@@ -1924,7 +2102,7 @@ void WebServerAPI::setupRoutes() {
             bool removed = false;
             if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
                 if (sd.exists(path.c_str())) removed = sd.remove(path.c_str());
-                if (removed) { writeFolderIndex("/gifs", folder); writePlaylistsJson("/gifs"); }
+                if (removed) { int c = updateFolderIndex("/gifs", folder, {}, { name }); updatePlaylistsEntry("/gifs", folder, c); }
                 xSemaphoreGive(sdMutex);
             }
             if (!removed) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"File not found\"}"); return; }
@@ -1981,7 +2159,7 @@ void WebServerAPI::setupRoutes() {
             if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(30000))) {
                 if (sd.exists(path.c_str())) {
                     extern GifEngine* gifEngine; if (gifEngine) gifEngine->stop();
-                    n = removeTree(path); writePlaylistsJson("/gifs");
+                    n = removeTree(path); updatePlaylistsEntry("/gifs", folder, -1);
                 }
                 xSemaphoreGive(sdMutex);
             }
@@ -2000,7 +2178,7 @@ void WebServerAPI::setupRoutes() {
                 if (sd.exists(path.c_str())) { code = 409; msg = "Folder already exists"; }
                 else if (sd.mkdir(path.c_str())) { code = 200; }
                 else { msg = "mkdir failed"; }
-                if (code == 200) writePlaylistsJson("/gifs");
+                if (code == 200) { String ip = path + "/index.txt"; FsFile ix = sd.open(ip.c_str(), FILE_OPEN_WRITE); if (ix) ix.close(); updatePlaylistsEntry("/gifs", folder, 0); }
                 xSemaphoreGive(sdMutex);
             }
             if (code != 200) { request->send(code, "application/json", "{\"status\":\"error\",\"message\":\"" + msg + "\"}"); return; }
@@ -2014,7 +2192,7 @@ void WebServerAPI::setupRoutes() {
             String rawTo     = request->hasParam("to")     ? request->getParam("to")->value()     : "";
             String folder = sanitizeName(rawFolder, false);
             if (badName(rawFolder) || badName(rawName) || badName(rawTo) || folder.isEmpty() || rawTo.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder and to are required (plain names)\"}"); return; }
-            String from, to, what;
+            String from, to, what, oldName, newName;
             if (rawName.isEmpty()) {
                 String toFolder = sanitizeName(rawTo, false); if (toFolder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"bad target name\"}"); return; }
                 from = "/gifs/" + folder; to = "/gifs/" + toFolder; what = to;
@@ -2022,7 +2200,7 @@ void WebServerAPI::setupRoutes() {
                 String name = sanitizeName(rawName, true); String toName = sanitizeName(rawTo, true);
                 if (!hasGifExt(toName)) { int d = name.lastIndexOf('.'); if (d >= 0) toName += name.substring(d); }
                 if (name.isEmpty() || toName.isEmpty() || !hasGifExt(toName)) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"bad file name\"}"); return; }
-                from = "/gifs/" + folder + "/" + name; to = "/gifs/" + folder + "/" + toName; what = to;
+                from = "/gifs/" + folder + "/" + name; to = "/gifs/" + folder + "/" + toName; what = to; oldName = name; newName = toName;
             }
             int code = 500; String msg = "SD busy";
             if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
@@ -2030,7 +2208,10 @@ void WebServerAPI::setupRoutes() {
                 else if (sd.exists(to.c_str())) { code = 409; msg = "Target already exists"; }
                 else if (sd.rename(from.c_str(), to.c_str())) { code = 200; }
                 else { msg = "rename failed"; }
-                if (code == 200) { if (rawName.isEmpty()) writePlaylistsJson("/gifs"); else writeFolderIndex("/gifs", folder); }
+                if (code == 200) {
+                    if (rawName.isEmpty()) { String tf = sanitizeName(rawTo, false); updatePlaylistsEntry("/gifs", folder, -1); updatePlaylistsEntry("/gifs", tf, indexLineCount("/gifs", tf)); }
+                    else { int c = updateFolderIndex("/gifs", folder, { newName }, { oldName }); updatePlaylistsEntry("/gifs", folder, c); }
+                }
                 xSemaphoreGive(sdMutex);
             }
             if (code != 200) { request->send(code, "application/json", "{\"status\":\"error\",\"message\":\"" + msg + "\"}"); return; }
@@ -2071,7 +2252,7 @@ void WebServerAPI::setupRoutes() {
                 if (!ctx) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"No file received\"}"); return; }
                 if (ctx->badFolder) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name (no path separators)\"}"); delete ctx; request->_tempObject = nullptr; return; }
                 if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(15000))) {
-                    if (ctx->savedCount > 0) { writeFolderIndex("/gifs", ctx->folder); writePlaylistsJson("/gifs"); }
+                    if (ctx->savedCount > 0) { int c = updateFolderIndex("/gifs", ctx->folder, ctx->savedNames, {}); updatePlaylistsEntry("/gifs", ctx->folder, c); }
                     xSemaphoreGive(sdMutex);
                 }
                 String body = "{\"status\":\"" + String(ctx->savedCount > 0 ? "ok" : "error") + "\",\"folder\":\"" + jsonEsc(ctx->folder) +
@@ -2130,7 +2311,7 @@ void WebServerAPI::setupRoutes() {
                     if (ctx->file) { if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) { ctx->file.close(); xSemaphoreGive(sdMutex); } }
                     if (ctx->currentOk) {
                         if (ctx->saved.length()) ctx->saved += ",";
-                        ctx->saved += "{\"name\":\"" + jsonEsc(ctx->currentName) + "\",\"bytes\":" + String(ctx->currentBytes) + "}";
+                        ctx->saved += "{\"name\":\"" + jsonEsc(ctx->currentName) + "\",\"bytes\":" + String(ctx->currentBytes) + "}"; ctx->savedNames.push_back(ctx->currentName);
                         ctx->savedCount++;
                         LOGI("GIFS", "Uploaded /gifs/%s/%s (%u bytes)", ctx->folder.c_str(), ctx->currentName.c_str(), (unsigned)ctx->currentBytes);
                     } else if (!ctx->currentName.isEmpty() && hasGifExt(ctx->currentName)) {

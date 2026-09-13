@@ -1273,7 +1273,7 @@ select.input option {
                 <input type="file" id="gif-fm-dir-input" webkitdirectory directory multiple style="display: none;">
               </div>
               <div id="gif-fm-list" style="margin-top: 0.6rem; max-height: 320px; overflow-y: auto; font-size: 0.88rem;"></div>
-              <div style="margin-top: 0.4rem;"><button id="gif-fm-more" class="btn" style="display: none; padding: 0.2rem 0.6rem;" data-i18n="gifs_show_more">Show more</button></div>
+              <div style="margin-top: 0.4rem;"><button id="gif-fm-rescan" class="btn" style="padding: 0.2rem 0.6rem; margin-right: 0.4rem;" data-i18n="gifs_rescan" title="Rebuild every folder's index.txt from the card (slow on large libraries; the panel pauses meanwhile)">🔄 Rescan library</button><button id="gif-fm-more" class="btn" style="display: none; padding: 0.2rem 0.6rem;" data-i18n="gifs_show_more">Show more</button></div>
             </div>
           </div>
           <div id="gif-lib-progress" class="text-muted" style="font-size: 0.9rem; min-height: 1.2em; margin-top: 0.8rem;"></div>
@@ -1919,6 +1919,12 @@ const translations = {
     gifs_browse_files: "click to browse files",
     gifs_browse_folder: "browse for a folder",
     gifs_upload: "Upload",
+    gifs_rescan: "🔄 Rescan library",
+    gifs_rescan_progress: "Rescanning {done}/{total}: {current}",
+    gifs_rescan_done: "Rescan finished ({result})",
+    gifs_rescan_confirm: "Rebuild the index of every folder from the card? On a large library this takes minutes and the panel pauses meanwhile.",
+    gifs_rescan_started: "Rescan started…",
+    gifs_rescan_busy: "A rescan is already running",
     gifs_show_more: "Show more",
     nav_dashboard: "Dashboard",
     nav_display: "Display",
@@ -2340,6 +2346,12 @@ const translations = {
     gifs_browse_files: "cliquez pour parcourir des fichiers",
     gifs_browse_folder: "parcourir un dossier",
     gifs_upload: "Envoyer",
+    gifs_rescan: "🔄 Réanalyser la bibliothèque",
+    gifs_rescan_progress: "Analyse {done}/{total} : {current}",
+    gifs_rescan_done: "Analyse terminée ({result})",
+    gifs_rescan_confirm: "Reconstruire l'index de chaque dossier depuis la carte ? Sur une grande bibliothèque cela prend plusieurs minutes et l'affichage est en pause pendant ce temps.",
+    gifs_rescan_started: "Analyse lancée…",
+    gifs_rescan_busy: "Une analyse est déjà en cours",
     gifs_show_more: "Afficher plus",
     nav_dashboard: "Tableau de bord",
     nav_display: "Affichage",
@@ -2761,6 +2773,12 @@ const translations = {
     gifs_browse_files: "haz clic para buscar archivos",
     gifs_browse_folder: "buscar una carpeta",
     gifs_upload: "Subir",
+    gifs_rescan: "🔄 Reescanear biblioteca",
+    gifs_rescan_progress: "Escaneando {done}/{total}: {current}",
+    gifs_rescan_done: "Escaneo terminado ({result})",
+    gifs_rescan_confirm: "¿Reconstruir el índice de cada carpeta desde la tarjeta? En una biblioteca grande tarda varios minutos y el panel se pausa mientras tanto.",
+    gifs_rescan_started: "Escaneo iniciado…",
+    gifs_rescan_busy: "Ya hay un escaneo en curso",
     gifs_show_more: "Mostrar más",
     nav_dashboard: "Panel",
     nav_display: "Pantalla",
@@ -5964,7 +5982,7 @@ function initGifLibrary() {
   const folderList = $('gif-fm-folder-list'), newFolder = $('gif-fm-newfolder'), mkdirBtn = $('gif-fm-mkdir');
   const title = $('gif-fm-title'), countEl = $('gif-fm-count'), folderActions = $('gif-fm-folder-actions'), renameFolderBtn = $('gif-fm-rename-folder'), deleteFolderBtn = $('gif-fm-delete-folder');
   const dropZone = $('gif-fm-drop'), dropTarget = $('gif-fm-drop-target'), pickDir = $('gif-fm-pick-dir'), filesIn = $('gif-fm-files-input'), dirIn = $('gif-fm-dir-input');
-  const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
+  const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), rescanBtn = $('gif-fm-rescan'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
   if (!folderList || !dropZone || !uploadBtn) return;
   const toast = (m, kind) => (window.showToast ? window.showToast(m, kind) : console.log(kind, m));
   const tr = (k, f, v) => { let s = (typeof t === 'function') ? t(k, f) : f; if (v) Object.keys(v).forEach(x => { s = s.split('{' + x + '}').join(v[x]); }); return s; };
@@ -5979,6 +5997,30 @@ function initGifLibrary() {
   async function fetchBlobUrl(url) { const r = await fetch(url, { headers: headers() }); if (!r.ok) throw new Error('HTTP ' + r.status); return URL.createObjectURL(await r.blob()); }
   async function downloadFile(url, name) { try { const u = await fetchBlobUrl(url); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000); } catch (e) { toast('Download failed: ' + (e.message || e), 'error'); } }
 
+  // ---------------- full rescan (background on the firmware, polled here) ----------------
+  async function pollRescan() {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      let st = {}; try { st = await api('/api/gifs/reindex/status'); } catch (_) { continue; }
+      if (st.running) { progress.textContent = tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }); continue; }
+      progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: st.last_result || '' });
+      return;
+    }
+  }
+  if (rescanBtn) rescanBtn.addEventListener('click', async () => {
+    if (busy) return;
+    if (!confirm(tr('gifs_rescan_confirm', 'Rebuild the index of every folder from the card? On a large library this takes minutes and the panel pauses meanwhile.'))) return;
+    busy = true; rescanBtn.disabled = true;
+    try {
+      const r = await fetch('/api/gifs/reindex', { method: 'POST', headers: headers() });
+      if (r.status === 202) { progress.textContent = tr('gifs_rescan_started', 'Rescan started…'); await pollRescan(); }
+      else if (r.status === 409) { toast(tr('gifs_rescan_busy', 'A rescan is already running'), 'info'); await pollRescan(); }
+      else if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || ('HTTP ' + r.status)); }
+      else { progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: 'ok' }); }   // synchronous firmware (RPi)
+      await loadLibrary(true);
+    } catch (e) { toast('Rescan failed: ' + (e.message || e), 'error'); }
+    finally { busy = false; rescanBtn.disabled = false; }
+  });
   // ---------------- folders (left pane) ----------------
   async function loadLibrary(keep) {
     try {
@@ -6084,7 +6126,6 @@ function initGifLibrary() {
       toast(`Uploaded ${saved} file(s)` + (skipped.length ? `, ${skipped.length} skipped` : ''), skipped.length && !saved ? 'error' : 'success');
     } catch (e) { progress.textContent = 'Upload failed: ' + (e.message || e); toast('Upload failed: ' + (e.message || e), 'error'); }
     finally {
-      try { await fetch('/api/gifs/reindex', { method: 'POST', headers: headers() }); } catch (_) {}
       busy = false; dropZone.style.opacity = ''; filesIn.value = ''; dirIn.value = '';
       if (groups.size === 1) selected = Array.from(groups.keys())[0];
       await loadLibrary();
