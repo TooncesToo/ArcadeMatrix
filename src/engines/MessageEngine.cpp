@@ -95,10 +95,10 @@ void MessageEngine::displayMessage(const MessageConfig& config) {
 
     if (currentMsg.direction == "rtl" || currentMsg.direction == "left") {
         cursorX = matrixW;
-        cursorY = ((matrixH - textHeight) / 2) + baselineOffset;
+        cursorY = ((matrixH - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
     } else if (currentMsg.direction == "ltr" || currentMsg.direction == "right") {
         cursorX = -textWidth;
-        cursorY = ((matrixH - textHeight) / 2) + baselineOffset;
+        cursorY = ((matrixH - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
     } else if (currentMsg.direction == "ttb" || currentMsg.direction == "down") {
         cursorX = (matrixW - textWidth) / 2;
         cursorY = -textHeight + baselineOffset;
@@ -107,7 +107,7 @@ void MessageEngine::displayMessage(const MessageConfig& config) {
         cursorY = matrixH + baselineOffset;
     } else if (currentMsg.direction == "static" || currentMsg.direction == "none") {
         cursorX = (matrixW - textWidth) / 2;
-        cursorY = ((matrixH - textHeight) / 2) + baselineOffset;
+        cursorY = ((matrixH - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
     }
 }
 
@@ -125,7 +125,7 @@ void MessageEngine::update(EngineContext* context) {
 
     if (currentMsg.direction == "static" || currentMsg.direction == "none") {
         cursorX = (matrix->width() - textWidth) / 2;
-        cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset;
+        cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
         return;
     }
     
@@ -136,11 +136,11 @@ void MessageEngine::update(EngineContext* context) {
         if (currentMsg.direction == "rtl" || currentMsg.direction == "left") {
             cursorX--;
             if (cursorX < -textWidth) cursorX = matrix->width();
-            cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset;
+            cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
         } else if (currentMsg.direction == "ltr" || currentMsg.direction == "right") {
             cursorX++;
             if (cursorX > matrix->width()) cursorX = -textWidth;
-            cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset;
+            cursorY = ((matrix->height() - textHeight) / 2) + baselineOffset + currentMsg.offsetY;
         } else if (currentMsg.direction == "ttb" || currentMsg.direction == "down") {
             cursorY++;
             if (cursorY > matrix->height() + baselineOffset) cursorY = -textHeight + baselineOffset;

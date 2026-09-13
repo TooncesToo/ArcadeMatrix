@@ -121,7 +121,7 @@ void gifReindexEnterMaintenance() {
     if (gifEngine) gifEngine->stop();
     if (rotationManager) rotationManager->setSuspended(true);
     if (g_gifMsg) {
-        MessageConfig m; m.text = "Reindexing GIF library..."; m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
+        MessageConfig m; m.text = "Reindexing GIF library..."; m.offsetY = -8; m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
         g_gifMsg->displayMessage(m);
     }
 }
@@ -141,6 +141,7 @@ void gifReindexShowProgress() {
     String eta = gifReindexEta();
     m.text = "Indexing " + String(g_gifReindex.done) + "/" + String(g_gifReindex.total) + " folders - " + String((long)g_gifReindex.files) +
              (g_gifReindex.expected > 0 ? "/" + String((long)g_gifReindex.expected) : String()) + " files" + (eta.length() ? " - " + eta : String());
+    m.offsetY = -8;   // one text line above centre, per Erik
     m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
     g_gifMsg->displayMessage(m);
 }
@@ -1870,6 +1871,7 @@ void WebServerAPI::setupRoutes() {
             if (msg) {
                 MessageConfig m;
                 m.text = "Upload mode - receiving files...";
+                m.offsetY = -8;   // one text line above centre
                 m.color = 0x07FF;
                 m.size = 1;
                 m.direction = "rtl";
@@ -1915,7 +1917,7 @@ void WebServerAPI::setupRoutes() {
             FsFile f;
             while (getNextFile(dir, f)) {
                 if (isDirectory(f)) continue;
-                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 20000) gifReindexShowProgress(); }   // 20 s: a scroll restart every 10 s was unreadable
+                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 30000) gifReindexShowProgress(); }   // 30 s: each refresh restarts the scroll
                 String n = getFileName(f);
                 int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
                 if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
