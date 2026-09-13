@@ -652,7 +652,7 @@ paths:
       tags:
         - GIF Library
       summary: Upload one or many media files into a playlist folder
-      description: Multipart upload; every `file` part is written to `/gifs/<folder>/<basename>`. The folder is created when missing. Unsupported types are reported in `skipped`. Names are sanitized to plain file names.
+      description: Multipart upload; every `file` part is written to `/gifs/<folder>/<basename>`. The folder is created when missing. While the upload runs the screen rotation is suspended and the panel shows an upload notice; both are restored when the request completes or the client disconnects. Unsupported types are reported in `skipped`. Names are sanitized to plain file names.
       parameters:
         - name: folder
           in: query
