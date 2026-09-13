@@ -176,7 +176,6 @@ String MarqueeEngine::resolveMarqueeFile() {
 
 void MarqueeEngine::activate() {
     m_active = true;
-    m_clearPending = true;   // the previous rotation slot's frame must not stay under the marquee (#26)
     if (m_hasRawBuffer) {
         return;
     }
@@ -237,10 +236,6 @@ bool MarqueeEngine::isFinished() const {
 
 void MarqueeEngine::render(EngineContext* context) {
     if (!m_active) return;
-    if (m_clearPending) {
-        if (context && context->getMatrix()) context->getMatrix()->fillScreen(0);
-        m_clearPending = false;
-    }
     if (m_hasRawBuffer && m_rawBuffer) {
         auto matrix = context ? context->getMatrix() : nullptr;
         if (!matrix) return;
