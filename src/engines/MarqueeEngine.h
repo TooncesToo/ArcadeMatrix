@@ -35,7 +35,7 @@ public:
     bool isRealtime() const override { return true; }
     bool selfPaced() const override { return false; }
     bool isFinished() const override;
-    bool needsClear() const override { return true; }   // rotation slot must replace the previous screen (#26); raw MQTT buffers cover the full panel anyway
+    bool needsClear() const override { return false; }   // cleared once on activation instead (see m_clearPending); a per-frame clear would wipe GIF frames between advances
 
     size_t expectedBufferBytes() const { return (size_t)panelWidth * panelHeight * 2; }
 
@@ -50,6 +50,7 @@ private:
     uint16_t* m_rawBuffer;
     bool m_active;
     bool m_hasRawBuffer;
+    bool m_clearPending = false;   // #26: wipe the previous screen once when the slot takes over
     unsigned long m_rawStartTime;
     unsigned long m_rawDurationMs;
     bool m_hasPsram = false;
