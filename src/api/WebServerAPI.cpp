@@ -2110,46 +2110,76 @@ void WebServerAPI::setupRoutes() {
         });
 
         server.on("/api/gifs/files", HTTP_GET, [](AsyncWebServerRequest *request){
-            // Listed from the folder's index.txt (fast even for thousands of files); a directory walk with sizes only when
-            // the index is missing. Entries from the index carry no "bytes" field.
+            // Streamed from the folder's index.txt in chunks: a 3,600-entry folder is ~150 KB of JSON, far more than
+            // the S3 can hold in one String. Falls back to a (small-folder) directory walk with sizes when no index exists.
             String raw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
             String folder = sanitizeName(raw, false);
             if (raw.indexOf('/') >= 0 || raw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name\"}"); return; }
-            String path = "/gifs/" + folder; String json = "["; bool first = true; bool found = false; bool fromIndex = false;
+            String path = "/gifs/" + folder;
+            struct FilesCtx { FsFile idx; String head; String carry; bool first = true; bool done = false; };
+            FilesCtx* ctx = new FilesCtx();
+            bool found = false; bool haveIndex = false;
             if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
                 if (sd.exists(path.c_str())) {
                     found = true;
                     String idxPath = path + "/index.txt";
-                    FsFile idx = sd.open(idxPath.c_str(), FILE_OPEN_READ);
-                    if (idx) {
-                        fromIndex = true;
-                        while (idx.available()) {
-                            String n = idx.readStringUntil('\n'); n.trim();
-                            if (n.isEmpty() || !hasGifExt(n)) continue;
-                            if (!first) json += ","; first = false;
-                            json += "{\"name\":\"" + jsonEsc(n) + "\"}";
-                        }
-                        idx.close();
-                    } else {
-                        FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
-                        if (dir && isDirectory(dir)) {
-                            FsFile f;
-                            while (getNextFile(dir, f)) {
-                                if (isDirectory(f)) continue;
-                                String n = getFileName(f); int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
-                                if (isMacJunk(n) || n == "index.txt" || !hasGifExt(n)) continue;
-                                if (!first) json += ","; first = false;
-                                json += "{\"name\":\"" + jsonEsc(n) + "\",\"bytes\":" + String((unsigned long)f.size()) + "}";
-                            }
-                            dir.close();
-                        }
-                    }
+                    ctx->idx = sd.open(idxPath.c_str(), FILE_OPEN_READ);
+                    haveIndex = (bool)ctx->idx;
                 }
                 xSemaphoreGive(sdMutex);
             }
-            json += "]";
-            if (!found) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"Folder not found\"}"); return; }
-            request->send(200, "application/json", "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"source\":\"" + String(fromIndex ? "index" : "scan") + "\",\"files\":" + json + "}");
+            if (!found) { delete ctx; request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"Folder not found\"}"); return; }
+            if (!haveIndex) {
+                // no index yet (folder created offline): walk the directory; such folders are small in practice
+                String json = "["; bool first = true;
+                if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                    FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
+                    if (dir && isDirectory(dir)) {
+                        FsFile f;
+                        while (getNextFile(dir, f)) {
+                            if (isDirectory(f)) continue;
+                            String n = getFileName(f); int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
+                            if (isMacJunk(n) || n == "index.txt" || !hasGifExt(n)) continue;
+                            if (!first) json += ","; first = false;
+                            json += "{\"name\":\"" + jsonEsc(n) + "\",\"bytes\":" + String((unsigned long)f.size()) + "}";
+                        }
+                        dir.close();
+                    }
+                    xSemaphoreGive(sdMutex);
+                }
+                delete ctx;
+                request->send(200, "application/json", "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"source\":\"scan\",\"files\":" + json + "]}");
+                return;
+            }
+            ctx->head = "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"source\":\"index\",\"files\":[";
+            AsyncWebServerResponse* resp = request->beginChunkedResponse("application/json", [ctx](uint8_t* buf, size_t maxLen, size_t index) -> size_t {
+                size_t out = 0;
+                auto emit = [&](const String& piece) -> bool {   // append if it fits, else keep it in carry
+                    if (out + piece.length() > maxLen) { ctx->carry = piece; return false; }
+                    memcpy(buf + out, piece.c_str(), piece.length()); out += piece.length(); return true;
+                };
+                if (ctx->head.length()) { String h = ctx->head; ctx->head = ""; if (!emit(h)) return out; }
+                if (ctx->carry.length()) { String c = ctx->carry; ctx->carry = ""; if (!emit(c)) return out; }
+                if (ctx->done) return 0;   // 0 = end of body (only reached after the closing bracket went out)
+                if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+                    while (ctx->idx.available()) {
+                        String n = ctx->idx.readStringUntil('\n'); n.trim();
+                        if (n.isEmpty() || !hasGifExt(n)) continue;
+                        String piece = String(ctx->first ? "" : ",") + "{\"name\":\"" + jsonEsc(n) + "\"}";
+                        ctx->first = false;
+                        if (!emit(piece)) { xSemaphoreGive(sdMutex); return out; }
+                        if (out > maxLen - 96) break;   // leave room; next call continues
+                    }
+                    if (!ctx->idx.available()) { ctx->idx.close(); ctx->done = true; }
+                    xSemaphoreGive(sdMutex);
+                }
+                if (ctx->done && ctx->carry.isEmpty()) { emit("]}"); }   // may land in carry if the buffer is full
+                if (out == 0 && !ctx->done && ctx->carry.isEmpty()) { ctx->done = true; emit("]}"); }   // safety: never return 0 mid-body
+                return out;
+            });
+            resp->addHeader("Cache-Control", "no-cache");
+            request->onDisconnect([ctx]() { if (ctx->idx) ctx->idx.close(); delete ctx; });
+            request->send(resp);
         });
 
         // recursive folder delete (playlist folders may hold subfolders, e.g. Logo/256)
