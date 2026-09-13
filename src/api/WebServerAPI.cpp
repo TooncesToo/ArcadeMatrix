@@ -1743,7 +1743,32 @@ void WebServerAPI::setupRoutes() {
             int savedCount = 0;
             bool engineStopped = false;
             bool badFolder = false;
+            bool modeOn = false;   // rotation suspended + "upload mode" notice on the panel
             ~GifUploadCtx() { if (file) file.close(); }
+        };
+
+        // Upload mode: per DEVELOPER.md §3 (Golden Rules #2/#5 - lock-free render core, sdMutex around SD access) the
+        // S3 cannot absorb a multi-file SD write while an engine renders, so for the duration of an upload the
+        // rotation is suspended and the panel shows a notice (same pattern as the OTA handler stopping the GifEngine).
+        // Both are undone when the request completes or the client disconnects. Idempotent on purpose.
+        auto enterUploadMode = [this]() {
+            extern RotationManager* rotationManager;
+            if (rotationManager) rotationManager->setSuspended(true);
+            if (msg) {
+                MessageConfig m;
+                m.text = "Upload mode - receiving files...";
+                m.color = 0x07FF;
+                m.size = 1;
+                m.direction = "rtl";
+                m.speed = 50;
+                m.timeoutSeconds = 1800;
+                msg->displayMessage(m);
+            }
+        };
+        auto leaveUploadMode = [this]() {
+            extern RotationManager* rotationManager;
+            if (msg) msg->deactivate();
+            if (rotationManager) rotationManager->setSuspended(false);
         };
 
         static auto sanitizeName = [](const String& in, bool allowExt) -> String {
@@ -2013,7 +2038,7 @@ void WebServerAPI::setupRoutes() {
         });
 
         server.on("/api/gifs/upload", HTTP_POST,
-            [](AsyncWebServerRequest *request) {
+            [leaveUploadMode](AsyncWebServerRequest *request) {
                 GifUploadCtx* ctx = (GifUploadCtx*)request->_tempObject;
                 if (!ctx) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"No file received\"}"); return; }
                 if (ctx->badFolder) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name (no path separators)\"}"); delete ctx; request->_tempObject = nullptr; return; }
@@ -2024,9 +2049,10 @@ void WebServerAPI::setupRoutes() {
                 String body = "{\"status\":\"" + String(ctx->savedCount > 0 ? "ok" : "error") + "\",\"folder\":\"" + jsonEsc(ctx->folder) +
                               "\",\"count\":" + String(ctx->savedCount) + ",\"saved\":[" + ctx->saved + "],\"skipped\":[" + ctx->skipped + "]}";
                 request->send(ctx->savedCount > 0 ? 200 : 400, "application/json", body);
+                if (ctx->modeOn) leaveUploadMode();
                 delete ctx; request->_tempObject = nullptr;
             },
-            [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+            [enterUploadMode, leaveUploadMode](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
                 GifUploadCtx* ctx = (GifUploadCtx*)request->_tempObject;
                 if (!ctx) {
                     ctx = new GifUploadCtx();
@@ -2036,9 +2062,13 @@ void WebServerAPI::setupRoutes() {
                     if (ctx->folder.isEmpty() && !ctx->badFolder) ctx->folder = "Uploads";
                     request->_tempObject = ctx;
                     // free the context if the client disconnects mid-upload (the final handler nulls _tempObject after deleting it)
-                    request->onDisconnect([request]() { if (request->_tempObject) { delete (GifUploadCtx*)request->_tempObject; request->_tempObject = nullptr; } });
+                    request->onDisconnect([request, leaveUploadMode]() {
+                        GifUploadCtx* c = (GifUploadCtx*)request->_tempObject;
+                        if (c) { if (c->modeOn) leaveUploadMode(); delete c; request->_tempObject = nullptr; }
+                    });
                     extern GifEngine* gifEngine;
                     if (gifEngine) { gifEngine->stop(); ctx->engineStopped = true; }   // no concurrent SD reads during the write
+                    enterUploadMode(); ctx->modeOn = true;
                     if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
                         if (!sd.exists("/gifs")) sd.mkdir("/gifs");
                         String fp = "/gifs/" + ctx->folder; if (!sd.exists(fp.c_str())) sd.mkdir(fp.c_str());
