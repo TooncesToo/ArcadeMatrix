@@ -103,6 +103,9 @@ struct GifReindexState {
     volatile int total = 0;
     volatile int done = 0;
     volatile long files = 0;      // directory entries seen so far (updated by the folder walk)
+    volatile long expected = 0;   // files listed in playlists.json at start (for the ETA)
+    volatile bool cancel = false;
+    unsigned long lastMsgMs = 0;
     String current;
     String lastResult;          // "ok: N folders" / "error: ..."
     unsigned long startedMs = 0, finishedMs = 0;
@@ -112,6 +115,7 @@ MessageEngine* g_gifMsg = nullptr;
 std::function<int(const String&, const String&)> g_gifWriteFolderIndex;   // bound in begin()
 std::function<String(const String&)> g_gifBuildPlaylistsFromIndexes;      // bound in begin()
 std::function<bool(const String&)> g_gifIsMacJunk;                          // bound in begin()
+std::function<String(const String&)> g_gifReadPlaylistsJson;                // bound in begin()
 
 void gifReindexEnterMaintenance() {
     if (gifEngine) gifEngine->stop();
@@ -121,10 +125,22 @@ void gifReindexEnterMaintenance() {
         g_gifMsg->displayMessage(m);
     }
 }
+String gifReindexEta() {
+    unsigned long el = millis() - g_gifReindex.startedMs;
+    if (g_gifReindex.expected <= 0 || g_gifReindex.files < 50 || el < 5000) return String();
+    float rate = (float)g_gifReindex.files / (el / 1000.0f);                 // files per second so far
+    long remaining = g_gifReindex.expected - g_gifReindex.files; if (remaining < 0) remaining = 0;
+    long secs = rate > 0.01f ? (long)(remaining / rate) : 0;
+    char buf[24]; snprintf(buf, sizeof(buf), "~%ld:%02ld left", secs / 60, secs % 60);
+    return String(buf);
+}
 void gifReindexShowProgress() {
     if (!g_gifMsg) return;
+    g_gifReindex.lastMsgMs = millis();
     MessageConfig m;
-    m.text = "Reindex " + String(g_gifReindex.done) + "/" + String(g_gifReindex.total) + " " + g_gifReindex.current + " (" + String(g_gifReindex.files) + " files)";
+    String eta = gifReindexEta();
+    m.text = "Indexing " + String(g_gifReindex.done) + "/" + String(g_gifReindex.total) + " folders - " + String((long)g_gifReindex.files) +
+             (g_gifReindex.expected > 0 ? "/" + String((long)g_gifReindex.expected) : String()) + " files" + (eta.length() ? " - " + eta : String());
     m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
     g_gifMsg->displayMessage(m);
 }
@@ -151,7 +167,19 @@ void gifReindexTask(void*) {
         xSemaphoreGive(sdMutex);
     }
     g_gifReindex.total = (int)folders.size();
+    if (g_gifReadPlaylistsJson && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
+        String pl = g_gifReadPlaylistsJson(root);
+        xSemaphoreGive(sdMutex);
+        if (pl.length()) {
+            DynamicJsonDocument doc(pl.length() * 2 + 1024);
+            if (deserializeJson(doc, pl) == DeserializationError::Ok && doc.is<JsonObject>()) {
+                long sum = 0; for (JsonPair kv : doc.as<JsonObject>()) sum += kv.value()["count"] | 0;
+                g_gifReindex.expected = sum;
+            }
+        }
+    }
     for (auto& name : folders) {
+        if (g_gifReindex.cancel) break;
         g_gifReindex.current = name;
         gifReindexShowProgress();
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(30000))) {
@@ -166,7 +194,7 @@ void gifReindexTask(void*) {
         if (sd.exists("/gifs_tate") && g_gifBuildPlaylistsFromIndexes) g_gifBuildPlaylistsFromIndexes("/gifs_tate");
         xSemaphoreGive(sdMutex);
     }
-    g_gifReindex.lastResult = "ok: " + String(g_gifReindex.total) + " folders";
+    g_gifReindex.lastResult = g_gifReindex.cancel ? ("cancelled after " + String(g_gifReindex.done) + "/" + String(g_gifReindex.total) + " folders") : ("ok: " + String(g_gifReindex.total) + " folders, " + String((long)g_gifReindex.files) + " files");
     g_gifReindex.current = "";
     g_gifReindex.finishedMs = millis();
     gifReindexLeaveMaintenance();
@@ -1887,7 +1915,7 @@ void WebServerAPI::setupRoutes() {
             FsFile f;
             while (getNextFile(dir, f)) {
                 if (isDirectory(f)) continue;
-                if (g_gifReindex.running) g_gifReindex.files = g_gifReindex.files + 1;
+                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 10000) gifReindexShowProgress(); }
                 String n = getFileName(f);
                 int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
                 if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
@@ -2016,6 +2044,7 @@ void WebServerAPI::setupRoutes() {
         g_gifWriteFolderIndex = writeFolderIndex;
         g_gifBuildPlaylistsFromIndexes = buildPlaylistsFromIndexes;
         g_gifIsMacJunk = isMacJunk;
+        g_gifReadPlaylistsJson = readPlaylistsJson;
 
         // Live library scan (does NOT touch index files).
         static auto scanLibrary = [](const String& root) -> String {
@@ -2052,7 +2081,7 @@ void WebServerAPI::setupRoutes() {
         // Full rescan of every folder from the real directory contents: runs in the background (202) — see gifReindexTask.
         server.on("/api/gifs/reindex", HTTP_POST, [](AsyncWebServerRequest *request){
             if (g_gifReindex.running) { request->send(409, "application/json", "{\"status\":\"busy\",\"message\":\"Reindex already running\"}"); return; }
-            g_gifReindex.running = true; g_gifReindex.total = 0; g_gifReindex.done = 0; g_gifReindex.files = 0; g_gifReindex.current = ""; g_gifReindex.lastResult = "";
+            g_gifReindex.running = true; g_gifReindex.total = 0; g_gifReindex.done = 0; g_gifReindex.files = 0; g_gifReindex.expected = 0; g_gifReindex.cancel = false; g_gifReindex.lastMsgMs = 0; g_gifReindex.current = ""; g_gifReindex.lastResult = "";
             g_gifReindex.startedMs = millis(); g_gifReindex.finishedMs = 0;
             gifReindexEnterMaintenance();
             if (xTaskCreatePinnedToCore(gifReindexTask, "gif_reindex", 12288, nullptr, 1, nullptr, 0) != pdPASS) {
@@ -2063,9 +2092,14 @@ void WebServerAPI::setupRoutes() {
             }
             request->send(202, "application/json", "{\"status\":\"started\"}");
         });
+        server.on("/api/gifs/reindex", HTTP_DELETE, [](AsyncWebServerRequest *request){
+            if (!g_gifReindex.running) { request->send(409, "application/json", "{\"status\":\"idle\"}"); return; }
+            g_gifReindex.cancel = true;   // honoured between folders; the folder being indexed completes first
+            request->send(202, "application/json", "{\"status\":\"cancelling\"}");
+        });
         server.on("/api/gifs/reindex/status", HTTP_GET, [](AsyncWebServerRequest *request){
             String j = "{\"running\":" + String(g_gifReindex.running ? "true" : "false") +
-                       ",\"total\":" + String(g_gifReindex.total) + ",\"done\":" + String(g_gifReindex.done) + ",\"files\":" + String((long)g_gifReindex.files) +
+                       ",\"total\":" + String(g_gifReindex.total) + ",\"done\":" + String(g_gifReindex.done) + ",\"files\":" + String((long)g_gifReindex.files) + ",\"expected\":" + String((long)g_gifReindex.expected) + ",\"eta\":\"" + jsonEsc(gifReindexEta()) + "\"" + ",\"cancelling\":" + String(g_gifReindex.cancel ? "true" : "false") +
                        ",\"current\":\"" + jsonEsc(g_gifReindex.current) + "\",\"last_result\":\"" + jsonEsc(g_gifReindex.lastResult) + "\"" +
                        ",\"elapsed_ms\":" + String(g_gifReindex.running ? (millis() - g_gifReindex.startedMs) : (g_gifReindex.finishedMs ? g_gifReindex.finishedMs - g_gifReindex.startedMs : 0)) + "}";
             request->send(200, "application/json", j);
