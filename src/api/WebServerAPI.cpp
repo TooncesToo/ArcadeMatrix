@@ -2082,28 +2082,46 @@ void WebServerAPI::setupRoutes() {
         });
 
         server.on("/api/gifs/files", HTTP_GET, [](AsyncWebServerRequest *request){
+            // Listed from the folder's index.txt (fast even for thousands of files); a directory walk with sizes only when
+            // the index is missing. Entries from the index carry no "bytes" field.
             String raw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
             String folder = sanitizeName(raw, false);
-            if (raw.indexOf('/') >= 0 || raw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder is required\"}"); return; }
-            String path = "/gifs/" + folder; String json = "["; bool first = true; bool found = false;
+            if (raw.indexOf('/') >= 0 || raw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name\"}"); return; }
+            String path = "/gifs/" + folder; String json = "["; bool first = true; bool found = false; bool fromIndex = false;
             if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000))) {
-                FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
-                if (dir && isDirectory(dir)) {
-                    found = true; FsFile f;
-                    while (getNextFile(dir, f)) {
-                        if (isDirectory(f)) continue;
-                        String n = getFileName(f); int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
-                        if (isMacJunk(n) || n == "index.txt" || !hasGifExt(n)) continue;
-                        if (!first) json += ","; first = false;
-                        json += "{\"name\":\"" + jsonEsc(n) + "\",\"bytes\":" + String((unsigned long)f.size()) + "}";
+                if (sd.exists(path.c_str())) {
+                    found = true;
+                    String idxPath = path + "/index.txt";
+                    FsFile idx = sd.open(idxPath.c_str(), FILE_OPEN_READ);
+                    if (idx) {
+                        fromIndex = true;
+                        while (idx.available()) {
+                            String n = idx.readStringUntil('\n'); n.trim();
+                            if (n.isEmpty() || !hasGifExt(n)) continue;
+                            if (!first) json += ","; first = false;
+                            json += "{\"name\":\"" + jsonEsc(n) + "\"}";
+                        }
+                        idx.close();
+                    } else {
+                        FsFile dir = sd.open(path.c_str(), FILE_OPEN_READ);
+                        if (dir && isDirectory(dir)) {
+                            FsFile f;
+                            while (getNextFile(dir, f)) {
+                                if (isDirectory(f)) continue;
+                                String n = getFileName(f); int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
+                                if (isMacJunk(n) || n == "index.txt" || !hasGifExt(n)) continue;
+                                if (!first) json += ","; first = false;
+                                json += "{\"name\":\"" + jsonEsc(n) + "\",\"bytes\":" + String((unsigned long)f.size()) + "}";
+                            }
+                            dir.close();
+                        }
                     }
-                    dir.close();
                 }
                 xSemaphoreGive(sdMutex);
             }
             json += "]";
             if (!found) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"Folder not found\"}"); return; }
-            request->send(200, "application/json", "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"files\":" + json + "}");
+            request->send(200, "application/json", "{\"folder\":\"" + jsonEsc(folder) + "\",\"path\":\"" + jsonEsc(path) + "\",\"source\":\"" + String(fromIndex ? "index" : "scan") + "\",\"files\":" + json + "}");
         });
 
         // recursive folder delete (playlist folders may hold subfolders, e.g. Logo/256)
