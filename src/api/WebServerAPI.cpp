@@ -102,6 +102,7 @@ struct GifReindexState {
     volatile bool running = false;
     volatile int total = 0;
     volatile int done = 0;
+    volatile long files = 0;      // directory entries seen so far (updated by the folder walk)
     String current;
     String lastResult;          // "ok: N folders" / "error: ..."
     unsigned long startedMs = 0, finishedMs = 0;
@@ -119,6 +120,13 @@ void gifReindexEnterMaintenance() {
         MessageConfig m; m.text = "Reindexing GIF library..."; m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
         g_gifMsg->displayMessage(m);
     }
+}
+void gifReindexShowProgress() {
+    if (!g_gifMsg) return;
+    MessageConfig m;
+    m.text = "Reindex " + String(g_gifReindex.done) + "/" + String(g_gifReindex.total) + " " + g_gifReindex.current + " (" + String(g_gifReindex.files) + " files)";
+    m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
+    g_gifMsg->displayMessage(m);
 }
 void gifReindexLeaveMaintenance() {
     if (g_gifMsg) g_gifMsg->deactivate();
@@ -145,6 +153,7 @@ void gifReindexTask(void*) {
     g_gifReindex.total = (int)folders.size();
     for (auto& name : folders) {
         g_gifReindex.current = name;
+        gifReindexShowProgress();
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(30000))) {
             if (g_gifWriteFolderIndex) g_gifWriteFolderIndex(root, name);
             xSemaphoreGive(sdMutex);
@@ -1906,6 +1915,7 @@ void WebServerAPI::setupRoutes() {
             FsFile f;
             while (getNextFile(dir, f)) {
                 if (isDirectory(f)) continue;
+                if (g_gifReindex.running) g_gifReindex.files = g_gifReindex.files + 1;
                 String n = getFileName(f);
                 int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
                 if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
@@ -2070,7 +2080,7 @@ void WebServerAPI::setupRoutes() {
         // Full rescan of every folder from the real directory contents: runs in the background (202) — see gifReindexTask.
         server.on("/api/gifs/reindex", HTTP_POST, [](AsyncWebServerRequest *request){
             if (g_gifReindex.running) { request->send(409, "application/json", "{\"status\":\"busy\",\"message\":\"Reindex already running\"}"); return; }
-            g_gifReindex.running = true; g_gifReindex.total = 0; g_gifReindex.done = 0; g_gifReindex.current = ""; g_gifReindex.lastResult = "";
+            g_gifReindex.running = true; g_gifReindex.total = 0; g_gifReindex.done = 0; g_gifReindex.files = 0; g_gifReindex.current = ""; g_gifReindex.lastResult = "";
             g_gifReindex.startedMs = millis(); g_gifReindex.finishedMs = 0;
             gifReindexEnterMaintenance();
             if (xTaskCreatePinnedToCore(gifReindexTask, "gif_reindex", 12288, nullptr, 1, nullptr, 0) != pdPASS) {
@@ -2083,7 +2093,7 @@ void WebServerAPI::setupRoutes() {
         });
         server.on("/api/gifs/reindex/status", HTTP_GET, [](AsyncWebServerRequest *request){
             String j = "{\"running\":" + String(g_gifReindex.running ? "true" : "false") +
-                       ",\"total\":" + String(g_gifReindex.total) + ",\"done\":" + String(g_gifReindex.done) +
+                       ",\"total\":" + String(g_gifReindex.total) + ",\"done\":" + String(g_gifReindex.done) + ",\"files\":" + String((long)g_gifReindex.files) +
                        ",\"current\":\"" + jsonEsc(g_gifReindex.current) + "\",\"last_result\":\"" + jsonEsc(g_gifReindex.lastResult) + "\"" +
                        ",\"elapsed_ms\":" + String(g_gifReindex.running ? (millis() - g_gifReindex.startedMs) : (g_gifReindex.finishedMs ? g_gifReindex.finishedMs - g_gifReindex.startedMs : 0)) + "}";
             request->send(200, "application/json", j);

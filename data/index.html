@@ -6041,8 +6041,12 @@ function initGifLibrary() {
     for (;;) {
       await new Promise(r => setTimeout(r, 2000));
       let st = {}; try { st = await api('/api/gifs/reindex/status'); } catch (_) { continue; }
-      if (st.running) { progress.textContent = tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }); continue; }
-      progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: st.last_result || '' });
+      if (st.running) {
+        const pct = st.total ? Math.round((st.done || 0) * 100 / st.total) : 0;
+        progress.innerHTML = `<div style="display:flex; align-items:center; gap:0.6rem;"><div style="flex:1; height:8px; background: rgba(255,255,255,0.12); border-radius:4px; overflow:hidden;"><div style="width:${pct}%; height:100%; background: var(--accent-primary, #6cf); transition: width 0.4s;"></div></div><span style="white-space:nowrap;">${esc(tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }))} · ${(st.files || 0).toLocaleString()} ${esc(tr('gifs_files_word', 'files'))} · ${Math.round((st.elapsed_ms || 0) / 1000)}s</span></div>`;
+        continue;
+      }
+      progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: st.last_result || '' }) + ` · ${(st.files || 0).toLocaleString()} ${tr('gifs_files_word', 'files')} · ${Math.round((st.elapsed_ms || 0) / 1000)}s`;
       return;
     }
   }
