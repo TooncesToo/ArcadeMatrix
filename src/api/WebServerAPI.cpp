@@ -1915,7 +1915,7 @@ void WebServerAPI::setupRoutes() {
             FsFile f;
             while (getNextFile(dir, f)) {
                 if (isDirectory(f)) continue;
-                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 10000) gifReindexShowProgress(); }
+                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 20000) gifReindexShowProgress(); }   // 20 s: a scroll restart every 10 s was unreadable
                 String n = getFileName(f);
                 int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
                 if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
