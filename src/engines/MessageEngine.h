@@ -11,6 +11,7 @@ struct MessageConfig {
     String direction; // "rtl" (Right-To-Left), "ltr", "ttb", "btt"
     int speed;        // Lower is faster (ms per pixel shift)
     unsigned long timeoutSeconds; // 30 by default
+    int offsetY;      // vertical shift in pixels for the horizontal directions (negative = higher); brace-initialised messages leave it 0 (centred). No default initialiser: keeps the struct an aggregate for the existing {..} initialisers.
 };
 
 #include "../../include/core/EngineContract.h"
