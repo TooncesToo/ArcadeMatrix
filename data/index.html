@@ -3016,7 +3016,7 @@ function pubFn() {
 // --- js/dynamic_engines.js ---
 
 const GLOBAL_TIMEZONES = [
-  { value: "system", label: "System Default / Fuseau Système" },
+  { value: "system", label: "System Default" },
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
   { value: "Europe/London", label: "Europe/London (UTC+0/+1)" },
   { value: "Europe/Dublin", label: "Europe/Dublin (UTC+0/+1)" },
@@ -3174,7 +3174,24 @@ function parseOptions(rawOptions) {
     });
   }
   if (typeof rawOptions === 'string' && rawOptions.trim().length > 0) {
-    return rawOptions.split(',').map(s => s.trim()).filter(s => s.length > 0).map(val => ({ value: val, label: val }));
+    // "value:label" items keep the bare value (what the firmware compares against) and show the label
+    return rawOptions.split(',').map(s => s.trim()).filter(s => s.length > 0).map(item => {
+      const i = item.indexOf(':');
+      return i > 0
+        ? { value: item.slice(0, i).trim(), label: item.slice(i + 1).trim() }
+        : { value: item, label: item };
+    });
+  }
+  if (typeof rawOptions === 'object') {
+    // Grouped object, e.g. /api/playlists on the ESP32: { yoko: { Arcade: { path, count }, ... }, tate: { ... } }
+    const out = [];
+    for (const [orientation, group] of Object.entries(rawOptions)) {
+      if (!group || typeof group !== 'object' || Array.isArray(group)) continue;
+      for (const [name, info] of Object.entries(group)) {
+        out.push({ value: name, label: name, count: (info && info.count !== undefined) ? info.count : undefined, orientation });
+      }
+    }
+    return out;
   }
   return [];
 }
@@ -3392,6 +3409,7 @@ function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaul
 
   const overlay = document.createElement('div');
   overlay.id = 'add-screen-modal-overlay';
+  let primaryField = null;   // set by renderModalContent(), read by the Create handler
   overlay.className = 'modal-overlay';
 
   function generateSuggestedId(engId, variant) {
@@ -3510,7 +3528,7 @@ function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaul
       `;
     } else {
       // Dynamic fallback for any schema
-      const primaryField = (fields && fields.length > 0) ? (
+      primaryField = (fields && fields.length > 0) ? (
         fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
         fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
         fields.find(f => isFileAssetField(f))
@@ -5435,10 +5453,21 @@ function initOta() {
           window.showToast(`✅ You are already on the latest version (v${data.current_version}).`, 'info');
         }
       } catch (err) {
+        if (err && (err.status === 404 || /404/.test(String(err.message || '')))) {
+          // Firmware without the online-update route (e.g. ESP32): keep the manual upload, hide the online card
+          if (onlineCard) onlineCard.style.display = 'none';
+          if (btnAutoInstall) btnAutoInstall.style.display = 'none';
+          btnCheck.disabled = true;
+          btnCheck.textContent = t('ota_online_unavailable_btn', 'Online update not available on this firmware');
+          window.showToast(t('ota_online_unavailable', 'Online update check is not available on this firmware. Use the manual firmware upload below.'), 'info');
+          return;
+        }
         window.showToast(`❌ Failed to check updates: ${err.message || err.status}`, 'error');
       } finally {
-        btnCheck.disabled = false;
-        btnCheck.textContent = '🔍 Check for Updates';
+        if (!btnCheck.disabled || btnCheck.textContent === '⏳ Checking GitHub...') {
+          btnCheck.disabled = false;
+          btnCheck.textContent = '🔍 Check for Updates';
+        }
       }
     });
   }
