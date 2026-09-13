@@ -35,7 +35,7 @@ public:
     bool isRealtime() const override { return true; }
     bool selfPaced() const override { return false; }
     bool isFinished() const override;
-    bool needsClear() const override { return false; }
+    bool needsClear() const override { return true; }   // rotation slot must replace the previous screen (#26); raw MQTT buffers cover the full panel anyway
 
     size_t expectedBufferBytes() const { return (size_t)panelWidth * panelHeight * 2; }
 
