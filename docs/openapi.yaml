@@ -729,14 +729,21 @@ paths:
     post:
       tags:
         - GIF Library
-      summary: Rebuild the playlist indexes
-      description: Rewrites every folder's `index.txt` and `/gifs/playlists.json` from the real directory contents, then returns the library.
+      summary: Rebuild every folder's index.txt and playlists.json from the card (background)
+      description: The walk over the whole library is too slow to run inside a request on the ESP32, so it is started as a background task while the screen rotation is suspended and the panel shows a notice. Poll `/api/gifs/reindex/status`. Uploads, deletes and renames keep `index.txt` / `playlists.json` current on their own, so a rescan is only needed after the card was edited offline.
+      responses:
+        '202':
+          description: Rescan started
+        '409':
+          description: A rescan is already running
+  /api/gifs/reindex/status:
+    get:
+      tags:
+        - GIF Library
+      summary: Progress of the background rescan
       responses:
         '200':
-          description: Same shape as `/api/gifs/library` plus `status`.
-        '503':
-          description: SD card busy.
-
+          description: '{ running, total, done, current, last_result, elapsed_ms }'
   /api/gifs/folder:
     delete:
       tags:
