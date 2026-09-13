@@ -3248,6 +3248,7 @@ function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaul
 
   const overlay = document.createElement('div');
   overlay.id = 'add-screen-modal-overlay';
+  let primaryField = null;   // set by renderModalContent(), read by the Create handler
   overlay.className = 'modal-overlay';
 
   function generateSuggestedId(engId, variant) {
@@ -3366,7 +3367,7 @@ function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaul
       `;
     } else {
       // Dynamic fallback for any schema
-      const primaryField = (fields && fields.length > 0) ? (
+      primaryField = (fields && fields.length > 0) ? (
         fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
         fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
         fields.find(f => isFileAssetField(f))
@@ -5290,10 +5291,21 @@ function initOta() {
           window.showToast(`✅ You are already on the latest version (v${data.current_version}).`, 'info');
         }
       } catch (err) {
+        if (err && (err.status === 404 || /404/.test(String(err.message || '')))) {
+          // Firmware without the online-update route (e.g. ESP32): keep the manual upload, hide the online card
+          if (onlineCard) onlineCard.style.display = 'none';
+          if (btnAutoInstall) btnAutoInstall.style.display = 'none';
+          btnCheck.disabled = true;
+          btnCheck.textContent = t('ota_online_unavailable_btn', 'Online update not available on this firmware');
+          window.showToast(t('ota_online_unavailable', 'Online update check is not available on this firmware. Use the manual firmware upload below.'), 'info');
+          return;
+        }
         window.showToast(`❌ Failed to check updates: ${err.message || err.status}`, 'error');
       } finally {
-        btnCheck.disabled = false;
-        btnCheck.textContent = '🔍 Check for Updates';
+        if (!btnCheck.disabled || btnCheck.textContent === '⏳ Checking GitHub...') {
+          btnCheck.disabled = false;
+          btnCheck.textContent = '🔍 Check for Updates';
+        }
       }
     });
   }
