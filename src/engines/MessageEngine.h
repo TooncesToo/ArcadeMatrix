@@ -29,6 +29,9 @@ public:
     void onConfigChanged(const EngineConfig* engineConfig) override;
     
     void displayMessage(const MessageConfig& config);
+    /// Thread-safe variant for callers on the other core (web server, background tasks): the message is parked and
+    /// applied by update() on the render core, so the text is never swapped underneath render().
+    void queueMessage(const MessageConfig& config);
     bool isActive() const { return active; }
     bool allowsOverlay() const override { return false; }
     bool needsClear() const override { return true; }
@@ -41,6 +44,9 @@ public:
 private:
 
     MessageConfig currentMsg;
+    MessageConfig pendingMsg;
+    volatile bool pendingFlag = false;
+    portMUX_TYPE pendingMux = portMUX_INITIALIZER_UNLOCKED;
     bool active;
     GFXfont* customFont;
     BitmapFontLoader fontLoader;

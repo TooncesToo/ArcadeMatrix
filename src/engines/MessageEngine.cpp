@@ -111,7 +111,23 @@ void MessageEngine::displayMessage(const MessageConfig& config) {
     }
 }
 
+void MessageEngine::queueMessage(const MessageConfig& config) {
+    portENTER_CRITICAL(&pendingMux);
+    pendingMsg = config;
+    pendingFlag = true;
+    portEXIT_CRITICAL(&pendingMux);
+    active = true;   // so the arbiter routes the display to us; the text itself is applied on the render core
+}
+
 void MessageEngine::update(EngineContext* context) {
+    if (pendingFlag) {
+        MessageConfig cfg;
+        portENTER_CRITICAL(&pendingMux);
+        cfg = pendingMsg;
+        pendingFlag = false;
+        portEXIT_CRITICAL(&pendingMux);
+        displayMessage(cfg);
+    }
     if (!active) return;
     
     auto* matrix = context->getMatrix();

@@ -122,7 +122,7 @@ void gifReindexEnterMaintenance() {
     if (rotationManager) rotationManager->setSuspended(true);
     if (g_gifMsg) {
         MessageConfig m; m.text = "Reindexing GIF library..."; m.offsetY = -8; m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
-        g_gifMsg->displayMessage(m);
+        g_gifMsg->queueMessage(m);
     }
 }
 String gifReindexEta() {
@@ -143,7 +143,7 @@ void gifReindexShowProgress() {
              (g_gifReindex.expected > 0 ? "/" + String((long)g_gifReindex.expected) : String()) + " files" + (eta.length() ? " - " + eta : String());
     m.offsetY = -8;   // one text line above centre, per Erik
     m.color = 0x07FF; m.size = 1; m.direction = "rtl"; m.speed = 50; m.timeoutSeconds = 7200;
-    g_gifMsg->displayMessage(m);
+    g_gifMsg->queueMessage(m);
 }
 void gifReindexLeaveMaintenance() {
     if (g_gifMsg) g_gifMsg->deactivate();
@@ -1877,7 +1877,7 @@ void WebServerAPI::setupRoutes() {
                 m.direction = "rtl";
                 m.speed = 50;
                 m.timeoutSeconds = 1800;
-                msg->displayMessage(m);
+                msg->queueMessage(m);
             }
         };
         auto leaveUploadMode = [this]() {
@@ -1917,7 +1917,7 @@ void WebServerAPI::setupRoutes() {
             FsFile f;
             while (getNextFile(dir, f)) {
                 if (isDirectory(f)) continue;
-                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if (millis() - g_gifReindex.lastMsgMs > 30000) gifReindexShowProgress(); }   // 30 s: each refresh restarts the scroll
+                if (g_gifReindex.running) { g_gifReindex.files = g_gifReindex.files + 1; if ((g_gifReindex.files % 64) == 0) vTaskDelay(1); if (millis() - g_gifReindex.lastMsgMs > 30000) gifReindexShowProgress(); }   // 30 s: each refresh restarts the scroll
                 String n = getFileName(f);
                 int ls = n.lastIndexOf('/'); if (ls >= 0) n = n.substring(ls + 1);
                 if (!isMacJunk(n) && n != "index.txt" && hasGifExt(n)) out.push_back(n);
