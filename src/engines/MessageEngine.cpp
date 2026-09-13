@@ -21,6 +21,10 @@ void MessageEngine::activate() {
 }
 
 void MessageEngine::deactivate() {
+    // drop any message still parked for the render core, otherwise update() would re-activate us right after
+    portENTER_CRITICAL(&pendingMux);
+    pendingFlag = false;
+    portEXIT_CRITICAL(&pendingMux);
     active = false;
 }
 
