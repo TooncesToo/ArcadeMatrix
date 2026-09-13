@@ -1925,6 +1925,8 @@ const translations = {
     gifs_preview_anyway: "Load preview anyway",
     gifs_cancel: "Cancel",
     gifs_rescan_go: "Continue",
+    gifs_files_word: "files",
+    gifs_rescan_cancelling: "cancelling…",
     gifs_rescan: "🔄 Rescan library",
     gifs_rescan_progress: "Rescanning {done}/{total}: {current}",
     gifs_rescan_done: "Rescan finished ({result})",
@@ -2358,6 +2360,8 @@ const translations = {
     gifs_preview_anyway: "Charger l'aperçu quand même",
     gifs_cancel: "Annuler",
     gifs_rescan_go: "Continuer",
+    gifs_files_word: "fichiers",
+    gifs_rescan_cancelling: "annulation…",
     gifs_rescan: "🔄 Réanalyser la bibliothèque",
     gifs_rescan_progress: "Analyse {done}/{total} : {current}",
     gifs_rescan_done: "Analyse terminée ({result})",
@@ -2791,6 +2795,8 @@ const translations = {
     gifs_preview_anyway: "Cargar la vista previa de todos modos",
     gifs_cancel: "Cancelar",
     gifs_rescan_go: "Continuar",
+    gifs_files_word: "archivos",
+    gifs_rescan_cancelling: "cancelando…",
     gifs_rescan: "🔄 Reescanear biblioteca",
     gifs_rescan_progress: "Escaneando {done}/{total}: {current}",
     gifs_rescan_done: "Escaneo terminado ({result})",
@@ -6042,8 +6048,9 @@ function initGifLibrary() {
       await new Promise(r => setTimeout(r, 2000));
       let st = {}; try { st = await api('/api/gifs/reindex/status'); } catch (_) { continue; }
       if (st.running) {
-        const pct = st.total ? Math.round((st.done || 0) * 100 / st.total) : 0;
-        progress.innerHTML = `<div style="display:flex; align-items:center; gap:0.6rem;"><div style="flex:1; height:8px; background: rgba(255,255,255,0.12); border-radius:4px; overflow:hidden;"><div style="width:${pct}%; height:100%; background: var(--accent-primary, #6cf); transition: width 0.4s;"></div></div><span style="white-space:nowrap;">${esc(tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }))} · ${(st.files || 0).toLocaleString()} ${esc(tr('gifs_files_word', 'files'))} · ${Math.round((st.elapsed_ms || 0) / 1000)}s</span></div>`;
+        const pct = st.expected ? Math.min(100, Math.round((st.files || 0) * 100 / st.expected)) : (st.total ? Math.round((st.done || 0) * 100 / st.total) : 0);
+        progress.innerHTML = `<div style="display:flex; align-items:center; gap:0.6rem;"><div style="flex:1; height:8px; background: rgba(255,255,255,0.12); border-radius:4px; overflow:hidden;"><div style="width:${pct}%; height:100%; background: var(--accent-primary, #6cf); transition: width 0.4s;"></div></div><span style="white-space:nowrap;">${esc(tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }))} · ${(st.files || 0).toLocaleString()}${st.expected ? '/' + st.expected.toLocaleString() : ''} ${esc(tr('gifs_files_word', 'files'))} · ${Math.round((st.elapsed_ms || 0) / 1000)}s${st.eta ? ' · ' + esc(st.eta) : ''}${st.cancelling ? ' · ' + esc(tr('gifs_rescan_cancelling', 'cancelling…')) : ''}</span><a href="#" class="fm-rescan-cancel" style="white-space:nowrap;">${esc(tr('gifs_cancel', 'Cancel'))}</a></div>`;
+        const c = progress.querySelector('.fm-rescan-cancel'); if (c) c.onclick = async (e) => { e.preventDefault(); try { await fetch('/api/gifs/reindex', { method: 'DELETE', headers: headers() }); } catch (_) {} };
         continue;
       }
       progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: st.last_result || '' }) + ` · ${(st.files || 0).toLocaleString()} ${tr('gifs_files_word', 'files')} · ${Math.round((st.elapsed_ms || 0) / 1000)}s`;
