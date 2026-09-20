@@ -7,6 +7,7 @@
 #include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include "Logger.h"
+#include "GifStats.h"
 #include "RenderStats.h"
 #include <time.h>
 #if defined(USE_RTC) && USE_RTC
@@ -201,6 +202,7 @@ void AppRuntime::initialize() {
     }
 #endif
     LOGI("SD", "SD Card mounted successfully.");
+    GifStats::start();
 
     uint32_t preConfigFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     uint32_t preConfigLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);

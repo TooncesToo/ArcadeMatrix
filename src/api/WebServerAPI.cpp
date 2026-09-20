@@ -1,4 +1,5 @@
 #include "WebServerAPI.h"
+#include "../core/GifStats.h"
 #include "../core/RenderStats.h"
 #include <core/EngineRegistry.h>
 #include <ArduinoJson.h>
@@ -391,6 +392,7 @@ void gifReindexShowProgress() {
     g_gifMsg->queueMessage(m);
 }
 void gifReindexLeaveMaintenance() {
+    GifStats::requestFlush();
     if (g_gifMsg) g_gifMsg->deactivate();
     if (rotationManager) rotationManager->setSuspended(false);
 }
@@ -2599,6 +2601,123 @@ void WebServerAPI::setupRoutes() {
             }
             if (!removed) { request->send(404, "application/json", "{\"status\":\"error\",\"message\":\"File not found\"}"); return; }
             request->send(200, "application/json", "{\"status\":\"ok\",\"orientation\":\"" + orientation + "\",\"deleted\":\"" + jsonEsc(path) + "\"}");
+        });
+
+        // ---- play statistics (GifStats) ----
+        //   GET    /api/gifs/stats[?orientation=]                summary per folder + since
+        //   GET    /api/gifs/stats?folder=<Name>[&limit=N]        played files of one folder, most played first
+        //   GET    /api/gifs/stats?top=N                          most played files across all folders
+        //   DELETE /api/gifs/stats                                reset
+        server.on("/api/gifs/stats", HTTP_GET, [](AsyncWebServerRequest *request){
+            const String orientation = gifOrientationOf(request);
+            const String root = gifRootFor(orientation);
+            String folderRaw = request->hasParam("folder") ? request->getParam("folder")->value() : "";
+            int limit = request->hasParam("limit") ? request->getParam("limit")->value().toInt() : 200;
+            if (limit < 1) limit = 1; if (limit > 2000) limit = 2000;
+            int top = request->hasParam("top") ? request->getParam("top")->value().toInt() : 0;
+            if (top > 100) top = 100;
+
+            // Resolve name hashes back to names by walking a folder's index.txt (bounded hold, Core 0).
+            auto resolveNames = [&](const String& folder, GifStats::Entry* ents, size_t n, String* names) -> bool {
+                for (size_t i = 0; i < n; i++) names[i] = "";
+                String idxPath = root + "/" + folder + "/index.txt";
+                SdLockGuard guard(pdMS_TO_TICKS(5000));
+                if (!guard) return false;
+                FsFile idx = sd.open(idxPath.c_str(), FILE_OPEN_READ);
+                if (!idx) return true;
+                size_t left = n;
+                while (idx.available() && left) {
+                    String nm = idx.readStringUntil('\n'); nm.trim();
+                    if (nm.isEmpty()) continue;
+                    uint32_t h = GifStats::hashName(nm.c_str());
+                    for (size_t i = 0; i < n; i++) if (ents[i].nameHash == h && names[i].isEmpty()) { names[i] = nm; left--; break; }
+                }
+                idx.close();
+                return true;
+            };
+            auto sortByCount = [](GifStats::Entry* e, size_t n) {   // insertion sort, n <= 2000 and mostly small
+                for (size_t i = 1; i < n; i++) { GifStats::Entry k = e[i]; size_t j = i; while (j > 0 && e[j-1].count < k.count) { e[j] = e[j-1]; j--; } e[j] = k; }
+            };
+
+            if (folderRaw.length()) {
+                String folder = sanitizeName(folderRaw, false);
+                if (folderRaw.indexOf('/') >= 0 || folderRaw.indexOf("..") >= 0 || folder.isEmpty()) { request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"folder must be a plain playlist name\"}"); return; }
+                size_t cap = (size_t)limit;
+                auto* ents = (GifStats::Entry*)heap_caps_malloc(cap * sizeof(GifStats::Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (!ents) { request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"out of memory\"}"); return; }
+                uint32_t plays = 0, played = 0;
+                size_t n = GifStats::folderEntries(root.c_str(), folder.c_str(), ents, cap, plays, played);
+                sortByCount(ents, n);
+                String* names = new String[n ? n : 1];
+                if (!resolveNames(folder, ents, n, names)) { delete[] names; heap_caps_free(ents); request->send(503, "application/json", "{\"status\":\"busy\",\"message\":\"SD card busy - try again in a moment\"}"); return; }
+                String json = "{\"folder\":\"" + jsonEsc(folder) + "\",\"plays\":" + String(plays) + ",\"played\":" + String(played) + ",\"since\":" + String(GifStats::since()) + ",\"files\":[";
+                for (size_t i = 0; i < n; i++) {
+                    if (names[i].isEmpty()) continue;   // entry for a file no longer on the card
+                    if (json[json.length()-1] != '[') json += ",";
+                    json += "{\"name\":\"" + jsonEsc(names[i]) + "\",\"plays\":" + String(ents[i].count) + ",\"last\":" + String(ents[i].last) + "}";
+                }
+                json += "]}";
+                delete[] names; heap_caps_free(ents);
+                request->send(200, "application/json", json);
+                return;
+            }
+
+            if (top > 0) {
+                // Gather every folder's played entries, keep the best `top`, then resolve their names.
+                struct Hit { char folder[64]; GifStats::Entry e; };
+                std::vector<Hit> hits; hits.reserve(top + 1);
+                struct Ctx { std::vector<Hit>* hits; int top; const String* root; } ctx{ &hits, top, &root };
+                GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t, uint32_t, void* u){
+                    Ctx* c = (Ctx*)u; if (plays == 0) return;
+                    GifStats::Entry tmp[256]; uint32_t p = 0, pd = 0;
+                    size_t n = GifStats::folderEntries(c->root->c_str(), folder, tmp, 256, p, pd);
+                    for (size_t i = 0; i < n; i++) {
+                        if ((int)c->hits->size() < c->top || tmp[i].count > c->hits->back().e.count) {
+                            Hit h; strlcpy(h.folder, folder, sizeof(h.folder)); h.e = tmp[i];
+                            auto it = c->hits->begin(); while (it != c->hits->end() && it->e.count >= h.e.count) ++it;
+                            c->hits->insert(it, h);
+                            if ((int)c->hits->size() > c->top) c->hits->pop_back();
+                        }
+                    }
+                }, &ctx);
+                String json = "{\"since\":" + String(GifStats::since()) + ",\"top\":[";
+                for (auto& h : hits) {
+                    GifStats::Entry one = h.e; String nm;
+                    if (!resolveNames(String(h.folder), &one, 1, &nm)) { request->send(503, "application/json", "{\"status\":\"busy\",\"message\":\"SD card busy - try again in a moment\"}"); return; }
+                    if (nm.isEmpty()) continue;
+                    if (json[json.length()-1] != '[') json += ",";
+                    json += "{\"folder\":\"" + jsonEsc(String(h.folder)) + "\",\"name\":\"" + jsonEsc(nm) + "\",\"plays\":" + String(h.e.count) + ",\"last\":" + String(h.e.last) + "}";
+                }
+                json += "]}";
+                request->send(200, "application/json", json);
+                return;
+            }
+
+            // Summary: per-folder plays and distinct played files, with the file counts from playlists.json.
+            SpiRamJsonDocument counts(16384);
+            {
+                SdLockGuard guard(pdMS_TO_TICKS(3000));
+                String plJson = root + "/playlists.json";
+                if (guard && sd.exists(plJson.c_str())) {
+                    FsFile f = sd.open(plJson.c_str(), FILE_OPEN_READ);
+                    if (f) { deserializeJson(counts, f); f.close(); }
+                }
+            }
+            struct SumCtx { String json; uint32_t total; SpiRamJsonDocument* counts; } sc{ "", 0, &counts };
+            GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t played, uint32_t last, void* u){
+                SumCtx* c = (SumCtx*)u;
+                int files = 0;
+                JsonVariant e = (*c->counts)[folder];
+                if (!e.isNull() && e["count"].is<int>()) files = e["count"].as<int>();
+                if (c->json.length()) c->json += ",";
+                c->json += "\"" + jsonEsc(String(folder)) + "\":{\"files\":" + String(files) + ",\"plays\":" + String(plays) + ",\"played\":" + String(played) + ",\"last\":" + String(last) + "}";
+                c->total += plays;
+            }, &sc);
+            request->send(200, "application/json", "{\"orientation\":\"" + orientation + "\",\"since\":" + String(GifStats::since()) + ",\"total_plays\":" + String(sc.total) + ",\"folders\":{" + sc.json + "}}");
+        });
+        server.on("/api/gifs/stats", HTTP_DELETE, [](AsyncWebServerRequest *request){
+            GifStats::requestReset();
+            request->send(202, "application/json", "{\"status\":\"resetting\"}");
         });
 
         server.on("/api/gifs/files", HTTP_GET, [](AsyncWebServerRequest *request){

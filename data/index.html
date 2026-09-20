@@ -1301,6 +1301,7 @@ select.input option {
           <div id="gif-fm" class="gif-fm">
             <div class="gif-fm-pane">
               <div class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.3rem;" data-i18n="gifs_folders">Playlist folders</div>
+              <div id="gif-fm-stats" class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.4rem; line-height: 1.5;"></div>
               <div id="gif-fm-folder-list" class="gif-fm-folders"></div>
               <div style="display: flex; gap: 0.4rem; margin-top: 0.6rem;">
                 <input type="text" id="gif-fm-newfolder" class="input" placeholder="New folder name" data-i18n-placeholder="gifs_new_folder_ph" maxlength="64" style="flex: 1; min-width: 0;">
@@ -2129,6 +2130,18 @@ const translations = {
     gifs_cancel: "Cancel",
     gifs_rescan_go: "Continue",
     gifs_files_word: "files",
+    gifs_stats_line: "{total} plays since {since} · {never} of {files} files never shown",
+    gifs_stats_top: "Top 10",
+    gifs_stats_reset: "Reset",
+    gifs_stats_reset_confirm: "Forget every play count and start over?",
+    gifs_stats_reset_done: "Play statistics reset",
+    gifs_stats_none: "No plays recorded yet.",
+    gifs_plays_word: "plays",
+    gifs_plays_last: "plays · last shown",
+    gifs_never_shown: "{n} never shown",
+    gifs_show_all: "show all",
+    gifs_just_now: "just now",
+    gifs_chip_title: "{plays} plays, {played} of {files} files shown",
     gifs_rescan_cancelling: "cancelling…",
     gifs_rescan: "🔄 Rescan library",
     gifs_rescan_progress: "Rescanning {done}/{total}: {current}",
@@ -2605,6 +2618,18 @@ const translations = {
     gifs_cancel: "Annuler",
     gifs_rescan_go: "Continuer",
     gifs_files_word: "fichiers",
+    gifs_stats_line: "{total} lectures depuis {since} · {never} des {files} fichiers jamais affichés",
+    gifs_stats_top: "Top 10",
+    gifs_stats_reset: "Réinitialiser",
+    gifs_stats_reset_confirm: "Oublier tous les compteurs de lecture et repartir de zéro ?",
+    gifs_stats_reset_done: "Statistiques de lecture réinitialisées",
+    gifs_stats_none: "Aucune lecture enregistrée.",
+    gifs_plays_word: "lectures",
+    gifs_plays_last: "lectures · dernier affichage",
+    gifs_never_shown: "{n} jamais affichés",
+    gifs_show_all: "tout afficher",
+    gifs_just_now: "à l'instant",
+    gifs_chip_title: "{plays} lectures, {played} des {files} fichiers affichés",
     gifs_rescan_cancelling: "annulation…",
     gifs_rescan: "🔄 Réanalyser la bibliothèque",
     gifs_rescan_progress: "Analyse {done}/{total} : {current}",
@@ -3081,6 +3106,18 @@ const translations = {
     gifs_cancel: "Cancelar",
     gifs_rescan_go: "Continuar",
     gifs_files_word: "archivos",
+    gifs_stats_line: "{total} reproducciones desde {since} · {never} de {files} archivos nunca mostrados",
+    gifs_stats_top: "Top 10",
+    gifs_stats_reset: "Reiniciar",
+    gifs_stats_reset_confirm: "¿Olvidar todos los contadores y empezar de cero?",
+    gifs_stats_reset_done: "Estadísticas de reproducción reiniciadas",
+    gifs_stats_none: "Aún no hay reproducciones registradas.",
+    gifs_plays_word: "reproducciones",
+    gifs_plays_last: "reproducciones · última vez",
+    gifs_never_shown: "{n} nunca mostrados",
+    gifs_show_all: "mostrar todo",
+    gifs_just_now: "ahora mismo",
+    gifs_chip_title: "{plays} reproducciones, {played} de {files} archivos mostrados",
     gifs_rescan_cancelling: "cancelando…",
     gifs_rescan: "🔄 Reescanear biblioteca",
     gifs_rescan_progress: "Escaneando {done}/{total}: {current}",
@@ -6556,6 +6593,10 @@ function initGifLibrary() {
   const fmtBytes = (b) => (b === undefined || b === null) ? '' : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
   const BATCH = 6, PAGE = 100, ALLOWED = /\.(gif|png|raw)$/i;
   let folders = {}, selected = null, files = [], shown = 0, pending = null, busy = false;
+  // play statistics (GifStats): summary per folder, and per-file plays for the selected folder
+  let stats = null, folderStats = {}, onlyNever = false;
+  const statsEl = $('gif-fm-stats');
+  const fmtWhen = (epoch) => { if (!epoch) return '–'; const d = new Date(epoch * 1000), now = Date.now(), diff = (now - d.getTime()) / 1000; if (diff < 60) return tr('gifs_just_now', 'just now'); if (diff < 3600) return Math.round(diff / 60) + ' min'; if (diff < 86400) return Math.round(diff / 3600) + ' h'; return Math.round(diff / 86400) + ' d'; };
   // Which library we are managing: 'yoko' -> /gifs, 'tate' -> /gifs_tate (GifEngine keeps them separate).
   let orientation = 'yoko';
   const orient = () => 'orientation=' + orientation;
@@ -6613,18 +6654,52 @@ function initGifLibrary() {
     } catch (e) { toast('Rescan failed: ' + (e.message || e), 'error'); }
     finally { busy = false; rescanBtn.disabled = false; }
   });
+  // ---------------- play statistics strip ----------------
+  function renderStatsStrip() {
+    if (!statsEl) return;
+    if (!stats || !stats.folders) { statsEl.innerHTML = ''; return; }
+    const total = stats.total_plays || 0;
+    let files = 0, played = 0;
+    Object.values(stats.folders).forEach(f => { files += f.files || 0; played += f.played || 0; });
+    const never = Math.max(0, files - played);
+    const sinceTxt = stats.since ? new Date(stats.since * 1000).toLocaleDateString() : '?';
+    statsEl.innerHTML = `${esc(tr('gifs_stats_line', '{total} plays since {since} · {never} of {files} files never shown', { total: total.toLocaleString(), since: sinceTxt, never: never.toLocaleString(), files: files.toLocaleString() }))}
+      · <a href="#" id="gif-fm-top10">${esc(tr('gifs_stats_top', 'Top 10'))}</a> · <a href="#" id="gif-fm-stats-reset" style="color: #f87171;">${esc(tr('gifs_stats_reset', 'Reset'))}</a><div id="gif-fm-top10-box"></div>`;
+    const topA = statsEl.querySelector('#gif-fm-top10'), box = statsEl.querySelector('#gif-fm-top10-box');
+    topA.onclick = async (e) => {
+      e.preventDefault();
+      if (box.innerHTML) { box.innerHTML = ''; return; }
+      box.innerHTML = tr('gifs_loading', 'Loading…');
+      try {
+        const d = await api('/api/gifs/stats?' + orient() + '&top=10');
+        box.innerHTML = (d.top || []).length ? '<ol style="margin: 0.3rem 0 0 1.2rem; padding: 0;">' + d.top.map(x => `<li>${esc(x.folder)}/${esc(x.name)} <span class="text-muted">· ${x.plays} · ${fmtWhen(x.last)}</span></li>`).join('') + '</ol>' : `<span class="text-muted">${esc(tr('gifs_stats_none', 'No plays recorded yet.'))}</span>`;
+      } catch (err) { box.textContent = 'Stats unavailable: ' + (err.message || err); }
+    };
+    statsEl.querySelector('#gif-fm-stats-reset').onclick = async (e) => {
+      e.preventDefault();
+      if (!await fmConfirm(tr('gifs_stats_reset', 'Reset'), tr('gifs_stats_reset_confirm', 'Forget every play count and start over?'), tr('gifs_stats_reset', 'Reset'))) return;
+      try { await fetch('/api/gifs/stats', { method: 'DELETE', headers: headers() }); toast(tr('gifs_stats_reset_done', 'Play statistics reset'), 'success'); setTimeout(() => loadLibrary(true), 1500); }
+      catch (err) { toast('Reset failed: ' + (err.message || err), 'error'); }
+    };
+  }
+
   // ---------------- folders (left pane) ----------------
   async function loadLibrary(keep) {
     try {
       const data = await api('/api/gifs/library?' + orient()); folders = data.folders || {};
       // while a rescan holds the card, listings/previews can answer 503 busy: say so instead of looking broken
       if (data.reindexing && !busy) progress.textContent = tr('gifs_reindexing_hint', 'A rescan is running - browsing and previews may be slow or answer "busy" until it finishes.');
+      try { stats = await api('/api/gifs/stats?' + orient()); } catch (_) { stats = null; }
+      renderStatsStrip();
       const names = Object.keys(folders).sort((a, b) => a.localeCompare(b));
       folderList.innerHTML = names.length ? '' : '<span class="text-muted">No playlist folders yet.</span>';
+      const total = stats ? (stats.total_plays || 0) : 0;
       names.forEach(n => {
         const b = document.createElement('button'); b.className = 'btn'; b.dataset.folder = n;
         b.style.cssText = 'text-align: left; padding: 0.3rem 0.6rem; display: flex; justify-content: space-between; gap: 0.5rem;' + (n === selected ? ' border: 1px solid var(--accent, #6cf);' : ' opacity: 0.85;');
-        b.innerHTML = `<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(n)}</span><span class="text-muted">${folders[n].count}</span>`;
+        const fs = stats && stats.folders ? stats.folders[n] : null;
+        const share = (fs && total) ? ` · ${(fs.plays * 100 / total).toFixed(fs.plays * 100 / total < 10 ? 1 : 0)}%` : '';
+        b.innerHTML = `<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(n)}</span><span class="text-muted" title="${fs ? esc(tr('gifs_chip_title', '{plays} plays, {played} of {files} files shown', { plays: fs.plays, played: fs.played, files: folders[n].count })) : ''}">${folders[n].count}${share}</span>`;
         b.onclick = () => selectFolder(n); folderList.appendChild(b);
       });
       if (selected && !names.includes(selected)) { selected = null; renderFiles([]); }
@@ -6643,8 +6718,17 @@ function initGifLibrary() {
     try {
       const data = await api('/api/gifs/files?' + orient() + '&folder=' + enc(name));
       if (seq !== selSeq) return;   // the user moved on to another folder meanwhile
-      files = data.files || []; countEl.textContent = tr('gifs_files_count', '{n} file(s)', { n: files.length });
-      renderFiles(files, true);
+      files = data.files || [];
+      folderStats = {};
+      try {   // only files that have been played come back, so this stays small even for 3,500-file folders
+        const st = await api('/api/gifs/stats?' + orient() + '&folder=' + enc(name) + '&limit=2000');
+        if (seq !== selSeq) return;
+        (st.files || []).forEach(x => { folderStats[x.name] = x; });
+        const neverN = files.filter(f => !folderStats[f.name]).length;
+        countEl.innerHTML = `${esc(tr('gifs_files_count', '{n} file(s)', { n: files.length }))} · ${st.plays || 0} ${esc(tr('gifs_plays_word', 'plays'))} · <a href="#" id="gif-fm-never">${onlyNever ? esc(tr('gifs_show_all', 'show all')) : esc(tr('gifs_never_shown', '{n} never shown', { n: neverN }))}</a>`;
+        countEl.querySelector('#gif-fm-never').onclick = (e) => { e.preventDefault(); onlyNever = !onlyNever; selectFolder(selected, true); };
+      } catch (_) { countEl.textContent = tr('gifs_files_count', '{n} file(s)', { n: files.length }); }
+      renderFiles(onlyNever ? files.filter(f => !folderStats[f.name]) : files, true);
     } catch (e) { if (seq === selSeq) { list.innerHTML = ''; if (!silent) toast('Could not list folder: ' + (e.message || e), 'error'); } }
   }
 
@@ -6657,7 +6741,9 @@ function initGifLibrary() {
       const row = document.createElement('div');
       row.style.cssText = 'display: flex; align-items: center; gap: 0.6rem; padding: 0.25rem 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.06);';
       const url = `/api/gifs/file?${orient()}&folder=${enc(selected)}&name=${enc(f.name)}`;
+      const st = folderStats[f.name];
       row.innerHTML = `<a href="#" class="fm-name" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none;" title="Click to preview">${esc(f.name)}</a>
+        <span class="text-muted" style="white-space: nowrap; min-width: 7.5em; text-align: right;" title="${esc(tr('gifs_plays_last', 'plays · last shown'))}">${st ? `${st.plays} · ${fmtWhen(st.last)}` : '–'}</span>
         <span class="text-muted" style="white-space: nowrap;">${fmtBytes(f.bytes)}</span>
         <a href="#" class="fm-dl text-muted" title="Download" style="text-decoration: none;">⤓</a>
         <a href="#" class="fm-rename text-muted" title="Rename" style="text-decoration: none;">✎</a>
