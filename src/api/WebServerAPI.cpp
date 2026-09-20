@@ -27,6 +27,14 @@
 #include <atomic>
 #include "../core/SdLockGuard.h"
 
+// A config change is applied in memory first and then written to the card. When the write fails (the
+// card is busy with a rescan or upload, or the write itself fails) the change would silently vanish at
+// the next reboot, so every handler that saves reports that with a 503 instead of a plain success.
+static void sendConfigSaveFailed(AsyncWebServerRequest* request) {
+    request->send(503, "application/json",
+        "{\"success\":false,\"sd_saved\":false,\"error\":\"Change applied but could not be written to the SD card (busy or write failed). It will be lost at reboot - retry in a moment.\"}");
+}
+
 extern RotationManager* rotationManager;
 extern GifEngine* gifEngine;
 
@@ -766,7 +774,7 @@ void WebServerAPI::setupRoutes() {
 
         // Sanitize and save
         ConfigSanitizer::sanitizeInstances(config);
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
         
         if (rotationManager) {
             if (structuralChange) {
@@ -781,6 +789,7 @@ void WebServerAPI::setupRoutes() {
             visualizer->onConfigChanged(&activeConfig);
         }
         
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     }, 4096);
     server.addHandler(instancesHandler);
@@ -828,13 +837,14 @@ void WebServerAPI::setupRoutes() {
         }
         
         ConfigSanitizer::sanitizeInstances(config);
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
         
         if (rotationManager) {
             rotationManager->recreateInstance(instanceId);
             rotationManager->resetRotation();
         }
         
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     });
 
@@ -870,13 +880,14 @@ void WebServerAPI::setupRoutes() {
         }
         
         ConfigSanitizer::sanitizeInstances(config);
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
         
         if (rotationManager) {
             rotationManager->recreateInstance(instanceId);
             rotationManager->resetRotation();
         }
         
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     });
 
@@ -940,12 +951,13 @@ void WebServerAPI::setupRoutes() {
             }
         }
         
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
         
         if (rotationManager) {
             rotationManager->resetRotation();
         }
         
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     }, 4096);
     server.addHandler(rotationHandler);
@@ -1149,7 +1161,8 @@ void WebServerAPI::setupRoutes() {
                 }
             }
         });
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     });
     server.addHandler(visHandler);
@@ -1698,7 +1711,8 @@ void WebServerAPI::setupRoutes() {
 
         // Sanitize all instances before persisting
         ConfigSanitizer::sanitizeInstances(config);
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
+        if (!saved) willReboot = false;   // a reboot now would discard the change
 
         if (rotationManager && !willReboot) {
             ConfigSnapshotGuard guard = config.acquireSnapshot();
@@ -1707,6 +1721,7 @@ void WebServerAPI::setupRoutes() {
             }
         }
 
+        if (!saved) { sendConfigSaveFailed(request); return; }
         if (willReboot) {
             request->send(200, "application/json", "{\"status\":\"rebooting\"}");
             delay(500);
@@ -2039,9 +2054,11 @@ void WebServerAPI::setupRoutes() {
             }
         });
 
+        bool saved = true;
         if (changed) {
             ConfigSanitizer::sanitize(config);
-            config.saveToSD("/config.json");
+            saved = config.saveToSD("/config.json");
+            if (!saved) willReboot = false;   // a reboot now would discard the change
         }
 
         if ((changed || langChanged) && rotationManager && !willReboot) {
@@ -2051,6 +2068,7 @@ void WebServerAPI::setupRoutes() {
             }
         }
 
+        if (!saved) { sendConfigSaveFailed(request); return; }
         SpiRamJsonDocument resp(512);
         resp["status"] = willReboot ? "rebooting" : "success";
         resp["lang"] = config.acquireSnapshot()->system.lang;
@@ -3149,7 +3167,8 @@ void WebServerAPI::setupRoutes() {
         extern ConfigLoader config;
         config.matrix.rotation_offset = displayOrientationManager.getRotationOffset();
         ConfigSanitizer::sanitize(config);
-        config.saveToSD("/config.json");
+        bool saved = config.saveToSD("/config.json");
+        if (!saved) { sendConfigSaveFailed(request); return; }
         SpiRamJsonDocument doc(256);
         doc["success"] = true;
         doc["rotation_offset"] = displayOrientationManager.getRotationOffset();
@@ -3204,10 +3223,12 @@ void WebServerAPI::setupRoutes() {
             displayOrientationManager.setTransitionDuration((uint32_t)config.matrix.rotation_transition_duration_ms);
             changed = true;
         }
+        bool saved = true;
         if (changed) {
             ConfigSanitizer::sanitize(config);
-            config.saveToSD("/config.json");
+            saved = config.saveToSD("/config.json");
         }
+        if (!saved) { sendConfigSaveFailed(request); return; }
         request->send(200, "application/json", "{\"success\":true}");
     });
     server.addHandler(orientHandler);
