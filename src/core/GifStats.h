@@ -37,4 +37,6 @@ namespace GifStats {
     void requestReset();
     /// Ask the keeper to write dirty folders now instead of at the next 15-minute mark.
     void requestFlush();
+    // Write dirty folders now and wait up to timeoutMs for it (call before a planned reboot/OTA restart).
+    bool flushNow(uint32_t timeoutMs);
 }
