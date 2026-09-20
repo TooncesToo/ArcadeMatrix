@@ -6698,7 +6698,7 @@ function initGifLibrary() {
         const b = document.createElement('button'); b.className = 'btn'; b.dataset.folder = n;
         b.style.cssText = 'text-align: left; padding: 0.3rem 0.6rem; display: flex; justify-content: space-between; gap: 0.5rem;' + (n === selected ? ' border: 1px solid var(--accent, #6cf);' : ' opacity: 0.85;');
         const fs = stats && stats.folders ? stats.folders[n] : null;
-        const share = (fs && total) ? ` · ${(fs.plays * 100 / total).toFixed(fs.plays * 100 / total < 10 ? 1 : 0)}%` : '';
+        const share = (fs && total) ? (fs.plays ? ` · ${(fs.plays * 100 / total).toFixed(fs.plays * 100 / total < 10 ? 1 : 0)}%` : ' · 0%') : '';
         b.innerHTML = `<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(n)}</span><span class="text-muted" title="${fs ? esc(tr('gifs_chip_title', '{plays} plays, {played} of {files} files shown', { plays: fs.plays, played: fs.played, files: folders[n].count })) : ''}">${folders[n].count}${share}</span>`;
         b.onclick = () => selectFolder(n); folderList.appendChild(b);
       });
