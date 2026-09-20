@@ -1,4 +1,5 @@
 #include "WebServerAPI.h"
+#include "../engines/FighterEngine.h"
 #include "../core/GifStats.h"
 #include "../core/SdSpace.h"
 #include "../core/CpuLoad.h"
@@ -394,6 +395,7 @@ void gifReindexShowProgress() {
     g_gifMsg->queueMessage(m);
 }
 void gifReindexLeaveMaintenance() {
+    SdSpace::requestRefresh();
     GifStats::requestFlush();
     if (g_gifMsg) g_gifMsg->deactivate();
     if (rotationManager) rotationManager->setSuspended(false);

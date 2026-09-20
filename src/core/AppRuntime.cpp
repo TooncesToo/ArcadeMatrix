@@ -204,6 +204,8 @@ void AppRuntime::initialize() {
     }
 #endif
     LOGI("SD", "SD Card mounted successfully.");
+    SdSpace::start();
+    CpuLoad::start();
     GifStats::start();
 
     uint32_t preConfigFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
