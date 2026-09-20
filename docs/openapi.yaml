@@ -911,6 +911,77 @@ paths:
         '503':
           description: SD card busy (a rescan holds the card) - retry shortly
 
+  /api/gifs/stats:
+    get:
+      tags:
+        - GIF Library
+      summary: GIF play statistics
+      description: >-
+        How often and when each file has been shown. Without `folder` or `top`, a per-folder summary
+        (files, plays, distinct files played, last play) with the total and the epoch the counting
+        started. With `folder`, the played files of that folder, most played first (`limit`, default
+        200, max 2000; files never played are not listed). With `top`, the most played files across
+        all folders (max 100). Counts are kept in memory and written to `<folder>/stats.txt` at most
+        every 15 minutes.
+      parameters:
+        - in: query
+          name: orientation
+          schema: { type: string, enum: [yoko, tate] }
+        - in: query
+          name: folder
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: top
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  since: { type: integer, description: Epoch seconds counting started }
+                  total_plays: { type: integer }
+                  folders:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        files: { type: integer }
+                        plays: { type: integer }
+                        played: { type: integer, description: Distinct files shown at least once }
+                        last: { type: integer }
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        plays: { type: integer }
+                        last: { type: integer }
+                  top:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        folder: { type: string }
+                        name: { type: string }
+                        plays: { type: integer }
+                        last: { type: integer }
+        '503':
+          description: SD card busy
+    delete:
+      tags:
+        - GIF Library
+      summary: Reset GIF play statistics
+      responses:
+        '202':
+          description: Reset scheduled on the stats keeper
+
   /api/gifs/reindex:
     post:
       tags:
