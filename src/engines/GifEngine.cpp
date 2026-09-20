@@ -1,4 +1,6 @@
 #include "GifEngine.h"
+#include "../core/GifStats.h"
+#include "../core/SpiRamJsonDocument.h"
 #include "../core/MatrixEngine.h"
 #include "../core/RenderStats.h"
 
@@ -858,6 +860,7 @@ void GifEngine::loadNextFileInPlaylist() {
             if (playGif(targetPath.c_str())) {
                 playlistMode = true;
                 lastPlayedGif = targetPath;
+                GifStats::recordPlay(targetPath.c_str());
                 return; // SUCCESS!
             }
         }
