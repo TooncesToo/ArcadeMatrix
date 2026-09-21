@@ -33,6 +33,8 @@ namespace GifStats {
     void forEachFolder(const char* root, void (*fn)(const char* folder, uint32_t plays, uint32_t played, uint32_t last, void* user), void* user);
     /// Epoch seconds when counting started (last reset), 0 if unknown.
     uint32_t since();
+    // Duration of the most recent write pass, milliseconds (0 until one has run).
+    uint32_t lastFlushMs();
     /// Forget everything and delete the stats files (runs on the keeper task; returns immediately).
     void requestReset();
     /// Ask the keeper to write dirty folders now instead of at the next 15-minute mark.

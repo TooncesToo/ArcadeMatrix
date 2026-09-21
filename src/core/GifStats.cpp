@@ -33,6 +33,7 @@ namespace {
     volatile bool g_resetRequested = false;
     volatile uint32_t g_flushReqSeq = 0;       // bumped by requestFlush()
     volatile uint32_t g_flushDoneSeq = 0;      // the request the keeper has finished writing
+    volatile uint32_t g_lastFlushMs = 0;       // how long the last full write pass took
     uint32_t g_since = 0;
     TaskHandle_t g_task = nullptr;
 
@@ -218,13 +219,16 @@ namespace {
                 if (!f.loaded) { loadFolder(f); if (!flushAll) vTaskDelay(pdMS_TO_TICKS(200)); }
             }
             uint32_t now = millis();
+            uint32_t writeStart = now; uint32_t written = 0;
             for (int i = 0; i < g_folderCount; i++) {
                 Folder& f = g_folders[i];
                 if (f.dirty && f.loaded && (flushAll || now - f.dirtySinceMs >= FLUSH_INTERVAL_MS)) {
+                    written++;
                     writeFolder(f);
                     if (!flushAll) vTaskDelay(pdMS_TO_TICKS(200));   // pace background writes, but not a shutdown flush
                 }
             }
+            if (written) { g_lastFlushMs = millis() - writeStart; LOGI("GifStats", "wrote %lu folder(s) in %lu ms", (unsigned long)written, (unsigned long)g_lastFlushMs); }
             g_flushDoneSeq = seq;
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(KEEPER_PERIOD_MS));   // requestFlush()/flushNow() wake us early
         }
@@ -298,6 +302,8 @@ namespace GifStats {
         xSemaphoreGive(g_mutex);
         for (int i = 0; i < cnt; i++) fn(rows[i].name, rows[i].plays, rows[i].played, rows[i].last, user);
     }
+
+    uint32_t lastFlushMs() { return g_lastFlushMs; }
 
     uint32_t since() { return g_since; }
     void requestReset() { g_resetRequested = true; }
