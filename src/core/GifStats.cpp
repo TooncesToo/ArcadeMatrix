@@ -31,8 +31,8 @@ namespace {
     int g_folderCount = 0;
     SemaphoreHandle_t g_mutex = nullptr;      // guards g_folders; held only for microseconds
     volatile bool g_resetRequested = false;
-    volatile bool g_flushRequested = false;
-    volatile uint32_t g_flushGeneration = 0;   // bumped after every flush pass; flushNow() waits on it
+    volatile uint32_t g_flushReqSeq = 0;       // bumped by requestFlush()
+    volatile uint32_t g_flushDoneSeq = 0;      // the request the keeper has finished writing
     uint32_t g_since = 0;
     TaskHandle_t g_task = nullptr;
 
@@ -210,17 +210,22 @@ namespace {
         discoverFolders();
         for (;;) {
             if (g_resetRequested) { g_resetRequested = false; doReset(); }
+            // Claim the pending request before writing, so flushNow() is only told about a pass that saw it.
+            uint32_t seq = g_flushReqSeq;
+            bool flushAll = (seq != g_flushDoneSeq);
             for (int i = 0; i < g_folderCount; i++) {
                 Folder& f = g_folders[i];
-                if (!f.loaded) { loadFolder(f); vTaskDelay(pdMS_TO_TICKS(200)); }
+                if (!f.loaded) { loadFolder(f); if (!flushAll) vTaskDelay(pdMS_TO_TICKS(200)); }
             }
             uint32_t now = millis();
-            bool flushAll = g_flushRequested; g_flushRequested = false;
             for (int i = 0; i < g_folderCount; i++) {
                 Folder& f = g_folders[i];
-                if (f.dirty && f.loaded && (flushAll || now - f.dirtySinceMs >= FLUSH_INTERVAL_MS)) { writeFolder(f); vTaskDelay(pdMS_TO_TICKS(200)); }
+                if (f.dirty && f.loaded && (flushAll || now - f.dirtySinceMs >= FLUSH_INTERVAL_MS)) {
+                    writeFolder(f);
+                    if (!flushAll) vTaskDelay(pdMS_TO_TICKS(200));   // pace background writes, but not a shutdown flush
+                }
             }
-            g_flushGeneration++;
+            g_flushDoneSeq = seq;
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(KEEPER_PERIOD_MS));   // requestFlush()/flushNow() wake us early
         }
     }
@@ -296,16 +301,16 @@ namespace GifStats {
 
     uint32_t since() { return g_since; }
     void requestReset() { g_resetRequested = true; }
-    void requestFlush() { g_flushRequested = true; if (g_task) xTaskNotifyGive(g_task); }
+    void requestFlush() { g_flushReqSeq++; if (g_task) xTaskNotifyGive(g_task); }
 
     bool flushNow(uint32_t timeoutMs) {
         if (!g_task) return false;
-        uint32_t gen = g_flushGeneration;
         requestFlush();
+        uint32_t want = g_flushReqSeq;
         uint32_t t0 = millis();
-        while (g_flushGeneration == gen) {          // the keeper writes on its own stack; we only wait
+        while ((int32_t)(g_flushDoneSeq - want) < 0) {   // wait for a pass that actually saw this request
             if (millis() - t0 >= timeoutMs) return false;
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(20));
         }
         return true;
     }

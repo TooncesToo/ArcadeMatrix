@@ -1764,7 +1764,7 @@ void WebServerAPI::setupRoutes() {
         if (!saved) { sendConfigSaveFailed(request); return; }
         if (willReboot) {
             request->send(200, "application/json", "{\"status\":\"rebooting\"}");
-            GifStats::flushNow(4000);
+            GifStats::flushNow(6000);
             delay(500);
             ESP.restart();
         } else {
@@ -2119,7 +2119,7 @@ void WebServerAPI::setupRoutes() {
 
         if (willReboot) {
             xTaskCreate([](void *param) {
-                GifStats::flushNow(4000);
+                GifStats::flushNow(6000);
                 vTaskDelay(pdMS_TO_TICKS(500));
                 ESP.restart();
             }, "config_reboot_task", 2048, NULL, 1, NULL);
@@ -2134,7 +2134,7 @@ void WebServerAPI::setupRoutes() {
     server.on("/api/system/shutdown", HTTP_POST, [](AsyncWebServerRequest *request){
         request->send(200, "application/json", "{\"success\":true}");
         xTaskCreate([](void *param) {
-            GifStats::flushNow(4000);   // don't lose the last minutes of play counts
+            GifStats::flushNow(6000);   // don't lose the last minutes of play counts
             vTaskDelay(pdMS_TO_TICKS(500));
             ESP.restart();
         }, "shutdown_task", 2048, NULL, 1, NULL);
@@ -2142,7 +2142,7 @@ void WebServerAPI::setupRoutes() {
     server.on("/api/system/reboot", HTTP_POST, [](AsyncWebServerRequest *request){
         request->send(200, "application/json", "{\"success\":true}");
         xTaskCreate([](void *param) {
-            GifStats::flushNow(4000);   // don't lose the last minutes of play counts
+            GifStats::flushNow(6000);   // don't lose the last minutes of play counts
             vTaskDelay(pdMS_TO_TICKS(500));
             ESP.restart();
         }, "reboot_task", 2048, NULL, 1, NULL);
@@ -2150,7 +2150,7 @@ void WebServerAPI::setupRoutes() {
     server.on("/api/system/restart", HTTP_POST, [](AsyncWebServerRequest *request){
         request->send(200, "application/json", "{\"success\":true}");
         xTaskCreate([](void *param) {
-            GifStats::flushNow(4000);   // don't lose the last minutes of play counts
+            GifStats::flushNow(6000);   // don't lose the last minutes of play counts
             vTaskDelay(pdMS_TO_TICKS(500));
             ESP.restart();
         }, "restart_task", 2048, NULL, 1, NULL);
@@ -2158,7 +2158,7 @@ void WebServerAPI::setupRoutes() {
     server.on("/api/system/restart_app", HTTP_POST, [](AsyncWebServerRequest *request){
         request->send(200, "application/json", "{\"success\":true}");
         xTaskCreate([](void *param) {
-            GifStats::flushNow(4000);   // don't lose the last minutes of play counts
+            GifStats::flushNow(6000);   // don't lose the last minutes of play counts
             vTaskDelay(pdMS_TO_TICKS(500));
             ESP.restart();
         }, "restart_app_task", 2048, NULL, 1, NULL);
@@ -2264,7 +2264,7 @@ void WebServerAPI::setupRoutes() {
                     matrixEngine.getDisplay()->fillScreen(0);
                     matrixEngine.present();
                 }
-                GifStats::flushNow(4000);   // OTA done: persist play counts before the restart
+                GifStats::flushNow(6000);   // OTA done: persist play counts before the restart
                 WiFi.disconnect(true, true);
                 vTaskDelay(pdMS_TO_TICKS(100));
                 esp_restart();
@@ -2302,7 +2302,7 @@ void WebServerAPI::setupRoutes() {
                     matrixEngine.getDisplay()->fillScreen(0);
                     matrixEngine.present();
                 }
-                GifStats::flushNow(4000);   // OTA done: persist play counts before the restart
+                GifStats::flushNow(6000);   // OTA done: persist play counts before the restart
                 WiFi.disconnect(true, true);
                 vTaskDelay(pdMS_TO_TICKS(100));
                 esp_restart();
