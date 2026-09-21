@@ -27,6 +27,7 @@ namespace {
         bool loaded = false;        // stats.txt read in
         bool dirty = false;
         uint32_t dirtySinceMs = 0;
+        uint32_t files = 0;         // library size from playlists.json, refreshed by the keeper
     };
 
     Folder g_folders[MAX_FOLDERS];
@@ -200,6 +201,31 @@ namespace {
         }
     }
 
+    // Folder sizes come from playlists.json; the keeper caches them so HTTP handlers touch no card.
+    void refreshFileCounts() {
+        const char* roots[] = { "/gifs", "/gifs_tate" };
+        for (const char* r : roots) {
+            char path[64]; snprintf(path, sizeof(path), "%s/playlists.json", r);
+            size_t len = 0;
+            char* buf = readWholeFile(path, len);
+            if (!buf || buf == (char*)1) continue;
+            for (int i = 0; i < g_folderCount; i++) {
+                Folder& f = g_folders[i];
+                if (strcmp(f.root, r) != 0) continue;
+                char key[80]; snprintf(key, sizeof(key), "\"%s\"", f.name);
+                char* at = strstr(buf, key);
+                if (!at) continue;
+                char* cnt = strstr(at, "\"count\"");
+                if (!cnt) continue;
+                char* colon = strchr(cnt, ':');
+                if (!colon) continue;
+                uint32_t v = strtoul(colon + 1, nullptr, 10);
+                if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) { f.files = v; xSemaphoreGive(g_mutex); }
+            }
+            free(buf);
+        }
+    }
+
     void loadMeta() {
         size_t len = 0;
         char* buf = readWholeFile("/gifs/stats_meta.txt", len);
@@ -252,6 +278,8 @@ namespace {
         vTaskDelay(pdMS_TO_TICKS(20000));         // let boot and the first screens settle
         loadMeta();
         discoverFolders();
+        refreshFileCounts();
+        uint32_t lastCountsMs = millis();
         for (;;) {
             if (g_resetRequested) { g_resetRequested = false; doReset(); }
             // Claim the pending request before writing, so flushNow() is only told about a pass that saw it.
@@ -282,6 +310,7 @@ namespace {
                 g_lastFlushFolders = written;
                 LOGI("GifStats", "wrote %lu folder(s) in %lu ms", (unsigned long)written, (unsigned long)g_lastFlushMs);
             }
+            if (millis() - lastCountsMs > 300000UL) { refreshFileCounts(); lastCountsMs = millis(); }
             g_flushDoneSeq = seq;
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(KEEPER_PERIOD_MS));   // requestFlush()/flushNow() wake us early
         }
@@ -353,22 +382,22 @@ namespace GifStats {
         return n;
     }
 
-    void forEachFolder(const char* root, void (*fn)(const char*, uint32_t, uint32_t, uint32_t, void*), void* user) {
+    void forEachFolder(const char* root, void (*fn)(const char*, uint32_t, uint32_t, uint32_t, uint32_t, void*), void* user) {
         if (!g_mutex || !fn) return;
         for (int i = 0; i < g_folderCount; i++) {
-            char name[64]; uint32_t plays = 0, played = 0, last = 0;
+            char name[64]; uint32_t plays = 0, played = 0, last = 0, files = 0;
             bool match = false;
             if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
                 Folder& f = g_folders[i];
                 if (strcmp(f.root, root) == 0) {
                     match = true;
                     strlcpy(name, f.name, sizeof(name));
-                    plays = f.plays; last = f.last;
+                    plays = f.plays; last = f.last; files = f.files;
                     for (uint32_t k = 0; k < f.n; k++) if (f.items[k].count) played++;
                 }
                 xSemaphoreGive(g_mutex);
             }
-            if (match) fn(name, plays, played, last, user);   // called outside the lock
+            if (match) fn(name, plays, played, last, files, user);   // called outside the lock
         }
     }
 

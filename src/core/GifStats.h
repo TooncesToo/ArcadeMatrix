@@ -38,8 +38,9 @@ namespace GifStats {
     /// Snapshot of one folder for the API: entries (count > 0 only) copied into `out`, capped at `max`.
     /// Returns the number copied; `plays` gets the folder's total and `played` its distinct file count.
     size_t folderEntries(const char* root, const char* folder, Entry* out, size_t max, uint32_t& plays, uint32_t& played);
-    /// Iterate folders known to the keeper for the given root: calls fn(folder, plays, played, lastEpoch).
-    void forEachFolder(const char* root, void (*fn)(const char* folder, uint32_t plays, uint32_t played, uint32_t last, void* user), void* user);
+    /// Iterate folders known to the keeper for the given root: fn(folder, plays, played, lastEpoch, files).
+    /// `files` is the folder's size from playlists.json, cached by the keeper so callers touch no card.
+    void forEachFolder(const char* root, void (*fn)(const char* folder, uint32_t plays, uint32_t played, uint32_t last, uint32_t files, void* user), void* user);
     /// Epoch seconds when counting started (last reset), 0 if unknown.
     uint32_t since();
     /// Duration of the most recent write pass in milliseconds, and how many folders it wrote.

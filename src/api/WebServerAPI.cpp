@@ -2693,7 +2693,7 @@ void WebServerAPI::setupRoutes() {
                 struct Hit { char folder[64]; GifStats::Entry e; };
                 std::vector<Hit> hits; hits.reserve(top + 1);
                 struct Ctx { std::vector<Hit>* hits; int top; const String* root; } ctx{ &hits, top, &root };
-                GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t, uint32_t, void* u){
+                GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t, uint32_t, uint32_t, void* u){
                     Ctx* c = (Ctx*)u; if (plays == 0) return;
                     const size_t CH = 256;
                     auto* tmp = (GifStats::Entry*)heap_caps_malloc(CH * sizeof(GifStats::Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -2721,22 +2721,11 @@ void WebServerAPI::setupRoutes() {
                 return;
             }
 
-            // Summary: per-folder plays and distinct played files, with the file counts from playlists.json.
-            SpiRamJsonDocument counts(16384);
-            {
-                SdLockGuard guard(pdMS_TO_TICKS(3000));
-                String plJson = root + "/playlists.json";
-                if (guard && sd.exists(plJson.c_str())) {
-                    FsFile f = sd.open(plJson.c_str(), FILE_OPEN_READ);
-                    if (f) { deserializeJson(counts, f); f.close(); }
-                }
-            }
-            struct SumCtx { String json; uint32_t total; SpiRamJsonDocument* counts; } sc{ "", 0, &counts };
-            GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t played, uint32_t last, void* u){
+            // Summary: per-folder plays and distinct played files. Folder sizes come from the keeper's
+            // cache of playlists.json, so this handler never waits on the card.
+            struct SumCtx { String json; uint32_t total; } sc{ "", 0 };
+            GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t played, uint32_t last, uint32_t files, void* u){
                 SumCtx* c = (SumCtx*)u;
-                int files = 0;
-                JsonVariant e = (*c->counts)[folder];
-                if (!e.isNull() && e["count"].is<int>()) files = e["count"].as<int>();
                 if (c->json.length()) c->json += ",";
                 c->json += "\"" + jsonEsc(String(folder)) + "\":{\"files\":" + String(files) + ",\"plays\":" + String(plays) + ",\"played\":" + String(played) + ",\"last\":" + String(last) + "}";
                 c->total += plays;
