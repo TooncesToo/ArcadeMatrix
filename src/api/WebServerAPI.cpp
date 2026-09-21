@@ -2664,25 +2664,7 @@ void WebServerAPI::setupRoutes() {
             int top = request->hasParam("top") ? request->getParam("top")->value().toInt() : 0;
             if (top > 100) top = 100;
 
-            // Resolve name hashes back to names by walking a folder's index.txt (bounded hold, Core 0).
-            auto resolveNames = [&](const String& folder, GifStats::Entry* ents, size_t n, String* names) -> bool {
-                for (size_t i = 0; i < n; i++) names[i] = "";
-                String idxPath = root + "/" + folder + "/index.txt";
-                SdLockGuard guard(pdMS_TO_TICKS(5000));
-                if (!guard) return false;
-                FsFile idx = sd.open(idxPath.c_str(), FILE_OPEN_READ);
-                if (!idx) return true;
-                size_t left = n;
-                while (idx.available() && left) {
-                    String nm = idx.readStringUntil('\n'); nm.trim();
-                    if (nm.isEmpty()) continue;
-                    uint32_t h = GifStats::hashName(nm.c_str());
-                    for (size_t i = 0; i < n; i++) if (ents[i].nameHash == h && names[i].isEmpty()) { names[i] = nm; left--; break; }
-                }
-                idx.close();
-                return true;
-            };
-            auto sortByCount = [](GifStats::Entry* e, size_t n) {   // insertion sort, n <= 2000 and mostly small
+            auto sortByCount = [](GifStats::Entry* e, size_t n) {   // insertion sort: n is small and nearly sorted
                 for (size_t i = 1; i < n; i++) { GifStats::Entry k = e[i]; size_t j = i; while (j > 0 && e[j-1].count < k.count) { e[j] = e[j-1]; j--; } e[j] = k; }
             };
 
@@ -2695,30 +2677,31 @@ void WebServerAPI::setupRoutes() {
                 uint32_t plays = 0, played = 0;
                 size_t n = GifStats::folderEntries(root.c_str(), folder.c_str(), ents, cap, plays, played);
                 sortByCount(ents, n);
-                String* names = new String[n ? n : 1];
-                if (!resolveNames(folder, ents, n, names)) { delete[] names; heap_caps_free(ents); request->send(503, "application/json", "{\"status\":\"busy\",\"message\":\"SD card busy - try again in a moment\"}"); return; }
                 String json = "{\"folder\":\"" + jsonEsc(folder) + "\",\"plays\":" + String(plays) + ",\"played\":" + String(played) + ",\"since\":" + String(GifStats::since()) + ",\"files\":[";
                 for (size_t i = 0; i < n; i++) {
-                    if (names[i].isEmpty()) continue;   // entry for a file no longer on the card
+                    if (ents[i].name[0] == '\0') continue;   // name was too long to keep
                     if (json[json.length()-1] != '[') json += ",";
-                    json += "{\"name\":\"" + jsonEsc(names[i]) + "\",\"plays\":" + String(ents[i].count) + ",\"last\":" + String(ents[i].last) + "}";
+                    json += "{\"name\":\"" + jsonEsc(String(ents[i].name)) + "\",\"plays\":" + String(ents[i].count) + ",\"last\":" + String(ents[i].last) + "}";
                 }
                 json += "]}";
-                delete[] names; heap_caps_free(ents);
+                heap_caps_free(ents);
                 request->send(200, "application/json", json);
                 return;
             }
 
             if (top > 0) {
-                // Gather every folder's played entries, keep the best `top`, then resolve their names.
                 struct Hit { char folder[64]; GifStats::Entry e; };
                 std::vector<Hit> hits; hits.reserve(top + 1);
                 struct Ctx { std::vector<Hit>* hits; int top; const String* root; } ctx{ &hits, top, &root };
                 GifStats::forEachFolder(root.c_str(), [](const char* folder, uint32_t plays, uint32_t, uint32_t, void* u){
                     Ctx* c = (Ctx*)u; if (plays == 0) return;
-                    GifStats::Entry tmp[256]; uint32_t p = 0, pd = 0;
-                    size_t n = GifStats::folderEntries(c->root->c_str(), folder, tmp, 256, p, pd);
+                    const size_t CH = 256;
+                    auto* tmp = (GifStats::Entry*)heap_caps_malloc(CH * sizeof(GifStats::Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (!tmp) return;
+                    uint32_t p = 0, pd = 0;
+                    size_t n = GifStats::folderEntries(c->root->c_str(), folder, tmp, CH, p, pd);
                     for (size_t i = 0; i < n; i++) {
+                        if (tmp[i].name[0] == '\0') continue;
                         if ((int)c->hits->size() < c->top || tmp[i].count > c->hits->back().e.count) {
                             Hit h; strlcpy(h.folder, folder, sizeof(h.folder)); h.e = tmp[i];
                             auto it = c->hits->begin(); while (it != c->hits->end() && it->e.count >= h.e.count) ++it;
@@ -2726,14 +2709,12 @@ void WebServerAPI::setupRoutes() {
                             if ((int)c->hits->size() > c->top) c->hits->pop_back();
                         }
                     }
+                    heap_caps_free(tmp);
                 }, &ctx);
                 String json = "{\"since\":" + String(GifStats::since()) + ",\"top\":[";
                 for (auto& h : hits) {
-                    GifStats::Entry one = h.e; String nm;
-                    if (!resolveNames(String(h.folder), &one, 1, &nm)) { request->send(503, "application/json", "{\"status\":\"busy\",\"message\":\"SD card busy - try again in a moment\"}"); return; }
-                    if (nm.isEmpty()) continue;
                     if (json[json.length()-1] != '[') json += ",";
-                    json += "{\"folder\":\"" + jsonEsc(String(h.folder)) + "\",\"name\":\"" + jsonEsc(nm) + "\",\"plays\":" + String(h.e.count) + ",\"last\":" + String(h.e.last) + "}";
+                    json += "{\"folder\":\"" + jsonEsc(String(h.folder)) + "\",\"name\":\"" + jsonEsc(String(h.e.name)) + "\",\"plays\":" + String(h.e.count) + ",\"last\":" + String(h.e.last) + "}";
                 }
                 json += "]}";
                 request->send(200, "application/json", json);
@@ -2760,7 +2741,12 @@ void WebServerAPI::setupRoutes() {
                 c->json += "\"" + jsonEsc(String(folder)) + "\":{\"files\":" + String(files) + ",\"plays\":" + String(plays) + ",\"played\":" + String(played) + ",\"last\":" + String(last) + "}";
                 c->total += plays;
             }, &sc);
-            request->send(200, "application/json", "{\"orientation\":\"" + orientation + "\",\"since\":" + String(GifStats::since()) + ",\"total_plays\":" + String(sc.total) + ",\"folders\":{" + sc.json + "}}");
+            request->send(200, "application/json",
+                          "{\"orientation\":\"" + orientation + "\",\"since\":" + String(GifStats::since()) +
+                          ",\"total_plays\":" + String(sc.total) +
+                          ",\"dropped\":" + String(GifStats::dropped()) +
+                          ",\"last_write_ms\":" + String(GifStats::lastFlushMs()) +
+                          ",\"folders\":{" + sc.json + "}}");
         });
         server.on("/api/gifs/stats/flush", HTTP_POST, [](AsyncWebServerRequest *request){
             uint32_t t0 = millis();
