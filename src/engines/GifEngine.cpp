@@ -735,6 +735,12 @@ int GifEngine::pickPlaylistIndex() {
     return (int)playlists.size() - 1;
 }
 
+void GifEngine::countPlayOnce() {
+    if (m_playCounted || lastPlayedGif.length() == 0) return;
+    m_playCounted = true;
+    GifStats::recordPlay(lastPlayedGif.c_str());
+}
+
 void GifEngine::loadNextFileInPlaylist() {
     if (playlists.empty()) {
         stop();
@@ -838,7 +844,7 @@ void GifEngine::loadNextFileInPlaylist() {
             if (playGif(targetPath.c_str())) {
                 playlistMode = true;
                 lastPlayedGif = targetPath;
-                GifStats::recordPlay(targetPath.c_str());
+                m_playCounted = false;   // counted once it actually shows a frame
                 return; // SUCCESS!
             }
         }
@@ -882,6 +888,7 @@ bool GifEngine::loop() {
         return playRawFrame();
     } else if (isPng) {
         blitCanvas();   // both DMA buffers end up holding the image; cheap once they do
+        countPlayOnce();
         if (millis() - pngShowStartTime > pngHoldDurationMs) {
             if (playlistMode) {
                 loadNextFileInPlaylist();
@@ -905,6 +912,7 @@ bool GifEngine::loop() {
         int delayMs = 0;
         int result = gif.playFrame(false, &delayMs, (void*)this);
         g_renderStats.gifDecodeMicros += micros() - decodeStartUs;
+        if (result >= 0) countPlayOnce();
 
         blitCanvas();
         
@@ -974,6 +982,7 @@ bool GifEngine::playRawFrame() {
         }
         bytesReadTotal += read;
     }
+    if (bytesReadTotal > 0) countPlayOnce();
     
     if (bytesReadTotal < bytesToRead) {
         // End of file
