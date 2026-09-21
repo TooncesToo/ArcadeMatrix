@@ -161,6 +161,8 @@ private:
     
     int remainingGifsToPlay;         ///< Counter for rotation limits
     String lastPlayedGif;            ///< Tracks last played GIF path to prevent consecutive duplicate playback
+    bool m_playCounted = false;      ///< Play statistics: this file has already been counted
+    void countPlayOnce();            ///< Count the current file once it has actually shown a frame
     uint32_t m_rotationBudget = 0;
     const EngineConfig* m_instanceConfig = nullptr;
     EngineContext* m_context = nullptr;
