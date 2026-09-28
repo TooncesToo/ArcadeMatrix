@@ -195,6 +195,7 @@ EngineDescriptor ClockEngineDescriptorHandler::getDescriptor() const {
         ConfigField("clock_speed", ConfigType::INTEGER, "Animation Speed", "Animation speed in percent (Tetris block fall, Pac-Man sweep); lower is slower", "100", false, "25", "300", "25", "", "", false, "", ValidationPolicy::Clamp),
         ConfigField("clock_color_1", ConfigType::COLOR, "Primary Color", "Custom gradient top color", "#ffffff", false, "", "", "", "", "", false, "clock_theme=20", ValidationPolicy::Accept),
         ConfigField("clock_color_2", ConfigType::COLOR, "Secondary Color", "Custom gradient bottom color", "#ff00ff", false, "", "", "", "", "", false, "clock_theme=20", ValidationPolicy::Accept),
+        ConfigField("clock_glow", ConfigType::BOOLEAN, "Glow Outline", "Draw a dimmed halo around the digits, the effect the Matrix face uses", "false", false, "", "", "", "", "", false, "", ValidationPolicy::FallbackDefault),
         ConfigField("clock_offset_x", ConfigType::INTEGER, "Offset X", "Horizontal pixel shift", "0", false, "-64", "64", "1", "", "", false, "", ValidationPolicy::Clamp),
         ConfigField("clock_offset_y", ConfigType::INTEGER, "Offset Y", "Vertical pixel shift", "0", false, "-32", "32", "1", "", "", false, "", ValidationPolicy::Clamp)
     };

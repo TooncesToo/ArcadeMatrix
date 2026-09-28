@@ -36,6 +36,7 @@ private:
 
     void formatTime(char* out, size_t n) const;
     static void splitTime(const char* str, char* hours, char* minutes);
+    bool glowEnabled = false;   ///< clock_glow: draw the Matrix-style halo behind the digits
     void printTime(const char* str, int centreX, int centreY, int scale, const GFXfont* font,
                    uint16_t digitColor, uint16_t colonColor, int minX = -1000, int maxX = 10000);
     void blit(const uint16_t* rows, int nRows, int nCols, int left, int top, int s, uint16_t color, bool mirror);

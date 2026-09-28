@@ -42,6 +42,16 @@ public:
         return nullptr;
     }
 
+    /// A dimmed copy of an RGB565 colour, for the halo the Matrix face draws behind its digits.
+    static uint16_t dim(uint16_t c, uint8_t numerator, uint8_t denominator) {
+        if (!denominator) return c;
+        uint8_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+        r = (uint8_t)((uint16_t)r * numerator / denominator);
+        g = (uint8_t)((uint16_t)g * numerator / denominator);
+        b = (uint8_t)((uint16_t)b * numerator / denominator);
+        return (uint16_t)(r << 11) | (uint16_t)(g << 5) | b;
+    }
+
     /// Horizontal cursor advance of one glyph at text size 1 (built-in font: 6 px per character).
     static int advance(const GFXfont* f, char c) {
         if (!f) return 6;
