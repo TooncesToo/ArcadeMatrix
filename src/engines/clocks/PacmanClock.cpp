@@ -256,8 +256,11 @@ void PacmanClock::update() {
     if (color1 == 0) color1 = matrix->color565(255, 255, 255);
     uint16_t colonColor = matrix->color565(60, 100, 255);
     uint16_t dotColor = matrix->color565(255, 183, 174);
-    uint16_t oldDigitColor = matrix->color565(110, 110, 110);
-    uint16_t oldColonColor = matrix->color565(50, 70, 130);
+    // The digits waiting to be eaten keep the clock's own colours. Dimming them made the whole
+    // clock look grey for the length of a pass and bright again afterwards, which reads as a fault
+    // rather than as an effect.
+    uint16_t oldDigitColor = color1;
+    uint16_t oldColonColor = colonColor;
 
     // Font: the configured face font at the configured size, falling back to the built-in one if the
     // time would not fit.
