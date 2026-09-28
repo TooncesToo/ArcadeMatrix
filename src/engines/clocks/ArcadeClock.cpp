@@ -1,4 +1,5 @@
 #include "ArcadeClock.h"
+#include "ClockFaceFont.h"
 #include "../../core/ConfigLoader.h"
 #include "../fonts/ArcadeFonts.h"
 
@@ -77,6 +78,16 @@ void ArcadeClock::drawStrWithShadow(const char* str, int x, int y, uint16_t text
         matrix->setCursor(x + effectDepth, y + effectDepth); matrix->print(str);
         matrix->setCursor(x + effectDepth - 1, y + effectDepth); matrix->print(str);
         matrix->setCursor(x + effectDepth, y + effectDepth - 1); matrix->print(str);
+    }
+
+    // Halo: the look the Matrix face gets from printing its digits four times one pixel out in a
+    // dimmed colour before the bright centre. Optional here, so existing themes are unchanged.
+    if (engineConfig && engineConfig->getBool("clock_glow", false)) {
+        matrix->setTextColor(ClockFaceFont::dim(textColor, 1, 3));
+        matrix->setCursor(x - 1, y); matrix->print(str);
+        matrix->setCursor(x + 1, y); matrix->print(str);
+        matrix->setCursor(x, y - 1); matrix->print(str);
+        matrix->setCursor(x, y + 1); matrix->print(str);
     }
 
     matrix->setTextColor(textColor);
