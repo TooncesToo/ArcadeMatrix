@@ -82,15 +82,16 @@ void ArcadeClock::drawStrWithShadow(const char* str, int x, int y, uint16_t text
 
     // Halo: the look the Matrix face gets from printing its digits four times one pixel out in a
     // dimmed colour before the bright centre. Optional here, so existing themes are unchanged.
-    if (engineConfig && engineConfig->getBool("clock_glow", false)) {
-        matrix->setTextColor(ClockFaceFont::dim(textColor, 1, 3));
+    uint16_t glowColor = 0, coreColor = textColor;
+    if (ClockFaceFont::glowFor(engineConfig, textColor, glowColor, coreColor)) {
+        matrix->setTextColor(glowColor);
         matrix->setCursor(x - 1, y); matrix->print(str);
         matrix->setCursor(x + 1, y); matrix->print(str);
         matrix->setCursor(x, y - 1); matrix->print(str);
         matrix->setCursor(x, y + 1); matrix->print(str);
     }
 
-    matrix->setTextColor(textColor);
+    matrix->setTextColor(coreColor);
     matrix->setCursor(x, y);
     matrix->print(str);
 }
