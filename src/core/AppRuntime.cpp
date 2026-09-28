@@ -246,6 +246,7 @@ void AppRuntime::initialize() {
     displayOrientationManager.setRotationOffset(snapshot.matrix.rotation_offset);
     displayOrientationManager.setTransitionEffect(snapshot.matrix.rotation_transition);
     displayOrientationManager.setTransitionDuration(snapshot.matrix.rotation_transition_duration_ms);
+    rotationManager->setSlotTransition(snapshot.matrix.slot_transition, snapshot.matrix.slot_transition_duration_ms);
 
     uint8_t initialRotation = (snapshot.matrix.auto_rotate && gyroHAL.isAvailable()) 
         ? (gyroHAL.getOrientation().suggestedRotation + snapshot.matrix.rotation_offset) % 4
