@@ -2,6 +2,7 @@
 #include <Adafruit_GFX.h>
 #include "../../core/ConfigLoader.h"
 #include "../../core/BitmapFontLoader.h"
+#include <stdlib.h>
 
 /**
  * Resolves a clock instance's `clock_font` setting into a GFXfont the animated faces can draw with,
@@ -50,6 +51,51 @@ public:
         g = (uint8_t)((uint16_t)g * numerator / denominator);
         b = (uint8_t)((uint16_t)b * numerator / denominator);
         return (uint16_t)(r << 11) | (uint16_t)(g << 5) | b;
+    }
+
+    /// "#rrggbb" (or "rrggbb") to RGB565; returns `fallback` when the string is not a colour.
+    static uint16_t parseHex(const char* hex, uint16_t fallback) {
+        if (!hex) return fallback;
+        while (*hex == ' ') hex++;
+        if (*hex == '#') hex++;
+        int n = 0; while (hex[n] && n < 7) n++;
+        if (n < 6) return fallback;
+        char buf[7]; for (int i = 0; i < 6; i++) buf[i] = hex[i];
+        buf[6] = '\0';
+        char* end = nullptr;
+        long v = strtol(buf, &end, 16);
+        if (end != buf + 6) return fallback;
+        uint8_t r = (uint8_t)((v >> 16) & 0xFF), g = (uint8_t)((v >> 8) & 0xFF), b = (uint8_t)(v & 0xFF);
+        return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+    }
+
+    /// A colour blended most of the way to white, the pale centre the Matrix face draws.
+    static uint16_t paled(uint16_t c) {
+        uint8_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+        r = (uint8_t)(r + (31 - r) * 3 / 4);
+        g = (uint8_t)(g + (63 - g) * 3 / 4);
+        b = (uint8_t)(b + (31 - b) * 3 / 4);
+        return (uint16_t)(r << 11) | (uint16_t)(g << 5) | b;
+    }
+
+    /**
+     * Resolve the instance's glow setting for digits drawn in `textColor`.
+     *   0 / absent : no halo.
+     *   1 (neon)   : the Matrix face's recipe - the chosen colour becomes the outline at full
+     *                strength and the centre is drawn near-white, which is what makes the digits
+     *                read as outlined rather than merely shadowed.
+     *   2 (custom) : the outline is `clock_glow_color` and the centre keeps its own colour.
+     * `core` comes back as the colour the centre pass should use. Returns false for no halo.
+     */
+    static bool glowFor(const EngineConfig* cfg, uint16_t textColor, uint16_t& halo, uint16_t& core) {
+        core = textColor;
+        if (!cfg) return false;
+        int mode = cfg->getInt("clock_glow", 0);
+        if (mode <= 0) return false;
+        if (mode == 1) { halo = textColor; core = paled(textColor); return true; }
+        String hex = cfg->getString("clock_glow_color", "");
+        halo = parseHex(hex.c_str(), textColor);
+        return true;
     }
 
     /// Horizontal cursor advance of one glyph at text size 1 (built-in font: 6 px per character).
