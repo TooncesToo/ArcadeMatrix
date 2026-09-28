@@ -19,6 +19,15 @@ WeatherEngine::WeatherEngine() : matrix(nullptr) {
 }
 
 WeatherEngine::~WeatherEngine() {
+    if (m_fetchTask) {          // stop the fetch before the providers it uses are freed
+        TaskHandle_t t = m_fetchTask;
+        m_fetchTask = nullptr;
+        vTaskDelete(t);
+    }
+    if (m_dataMutex) {
+        vSemaphoreDelete(m_dataMutex);
+        m_dataMutex = nullptr;
+    }
     for (auto* provider : providers) {
         delete provider;
     }
@@ -51,6 +60,7 @@ EngineError WeatherEngine::initialize(EngineContext* context, const EngineConfig
 
 void WeatherEngine::activate() {
     requestRedraw();
+    startFetchTask();   // so the first forecast is already on its way before the slot comes round
     if (config_api_key.isEmpty() || config_city.isEmpty()) {
         extern ConfigLoader config;
         ConfigSnapshotGuard guard = config.acquireSnapshot();
@@ -124,6 +134,29 @@ void WeatherEngine::setCharacter(int characterId) {
     }
 }
 
+void WeatherEngine::startFetchTask() {
+    if (m_fetchTask) return;
+    if (!m_dataMutex) m_dataMutex = xSemaphoreCreateMutex();
+    if (!m_dataMutex) return;
+    // Core 0 keeps the render loop on Core 1 free; 8 KB covers a TLS handshake and JSON parse.
+    if (xTaskCreatePinnedToCore(fetchTaskEntry, "weather_fetch", 8192, this, 1, &m_fetchTask, 0) != pdPASS) {
+        m_fetchTask = nullptr;
+        LOGW("WeatherEngine", "fetch task did not start; falling back to no updates");
+    }
+}
+
+void WeatherEngine::fetchTaskEntry(void* arg) {
+    auto* self = static_cast<WeatherEngine*>(arg);
+    for (;;) {
+        self->fetchOnce();
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
+void WeatherEngine::fetchOnce() {
+    updateWeather(config_api_key, config_city, config_units);
+}
+
 void WeatherEngine::updateWeather(const String& apiKey, const String& city, const String& units) {
     if (apiKey.isEmpty() || city.isEmpty()) {
         static unsigned long lastWarn = 0;
@@ -162,17 +195,27 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
     String reqLang = config_lang;
     if (reqLang.length() == 0) reqLang = "fr";
     
+    WeatherData fresh[MAX_FORECAST_DAYS];
+    int freshCount = 0;
     bool fetched = false;
     for (IWeatherProvider* provider : providers) {
-        if (provider->fetchForecast(apiKey, city, reqLang, units, forecasts, MAX_FORECAST_DAYS, numForecasts)) {
+        if (provider->fetchForecast(apiKey, city, reqLang, units, fresh, MAX_FORECAST_DAYS, freshCount)) {
             fetched = true;
             break;
         }
     }
-    
-    if (fetched && numForecasts > 0) {
+
+    if (fetched && freshCount > 0) {
+        if (m_dataMutex && xSemaphoreTake(m_dataMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+            for (int i = 0; i < freshCount && i < MAX_FORECAST_DAYS; i++) forecasts[i] = fresh[i];
+            numForecasts = freshCount;
+            xSemaphoreGive(m_dataMutex);
+        } else {
+            for (int i = 0; i < freshCount && i < MAX_FORECAST_DAYS; i++) forecasts[i] = fresh[i];
+            numForecasts = freshCount;
+        }
         validData = true;
-        requestRedraw();
+        m_newData = true;
         activeSlide = 0;
         lastSlideChange = millis();
         LOGI("WeatherEngine", "Success! Parsed %d forecast days in %s units.", numForecasts, units.c_str());
@@ -240,9 +283,13 @@ void WeatherEngine::drawIcon(const String& icon, int x, int y, int scale) {
 }
 
 bool WeatherEngine::loop() {
-    bool hadData = validData;
-    updateWeather(config_api_key, config_city, config_units);
-    if (hadData != validData) requestRedraw();   // data appeared or was lost
+    // Nothing here touches the network: the fetch task owns that, and a redraw is requested when
+    // fresh data lands. Weather therefore draws from cache the moment the rotation arrives.
+    startFetchTask();
+    if (m_newData) {
+        m_newData = false;
+        requestRedraw();
+    }
 
     // Cycle through Today/Tomorrow/Day3 every slideDurationMs. Simplified vs. the RPi's eased
     // horizontal-scroll transition (see WeatherEngine.h for rationale).
