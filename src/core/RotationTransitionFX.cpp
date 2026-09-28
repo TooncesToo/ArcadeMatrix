@@ -88,7 +88,9 @@ void RotationTransitionFX::start(uint8_t fromRot, uint8_t toRot, RotationEffect 
     _active = true;
 
     if (_configuredEffect == RotationEffect::RANDOM) {
-        uint8_t r = random(1, 6);
+        // 1..5 are the orientation effects, 7..11 the slot ones; 6 is RANDOM itself, so skip it.
+        uint8_t r = random(1, 11);
+        if (r >= 6) r++;
         _activeEffect = static_cast<RotationEffect>(r);
     } else {
         _activeEffect = _configuredEffect;
