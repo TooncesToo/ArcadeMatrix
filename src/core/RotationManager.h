@@ -53,6 +53,8 @@ public:
     // Core Runtime Services for fully migrated engines
     void setEngineContext(AppEngineContext* ctx) { m_ctx = ctx; }
     RotationTransitionFX m_slotFx;
+    bool m_awaitingFirstFrame = false;   ///< the slot just changed and its engine has not drawn yet
+    uint32_t m_slotFxStartedMs = 0;
     RotationEffect m_slotEffect = RotationEffect::NONE;
     int m_slotFxMs = 500;
     void setDisplayRuntime(DisplayRuntime* dr) { m_displayRuntime = dr; }

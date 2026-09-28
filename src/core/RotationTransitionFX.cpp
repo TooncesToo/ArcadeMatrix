@@ -85,6 +85,7 @@ void RotationTransitionFX::start(uint8_t fromRot, uint8_t toRot, RotationEffect 
     _durationMs = durationMs;
     _startTime = millis();
     _apexApplied = false;
+    _holding = false;
     _active = true;
 
     if (_configuredEffect == RotationEffect::RANDOM) {
@@ -111,6 +112,10 @@ bool RotationTransitionFX::render(Adafruit_GFX* display, void (*onApexReached)(u
     if (!_active || !display) return false;
 
     uint32_t now = millis();
+    // While held, keep the clock at the midpoint so the panel stays covered.
+    if (_holding && (now - _startTime) >= _durationMs / 2) {
+        _startTime = now - _durationMs / 2;
+    }
     uint32_t elapsed = now - _startTime;
 
     if (elapsed >= _durationMs) {
