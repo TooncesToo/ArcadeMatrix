@@ -171,7 +171,8 @@ void PacmanClock::drawPacman(int cx, int cy, int s, int frame, bool facingRight)
     int left = cx - w / 2;
     int top = cy - h / 2;
     if (left + w <= 0 || left >= matrix->width()) return;
-    matrix->fillRect(left, top, w, h, 0);
+    // No box behind the sprite: the frame is already cleared, and blanking the bounding box put a
+    // black square in the open mouth and around the round edges, hiding digits Pac-Man is not on.
     const uint16_t* rows = (frame == 0) ? PAC_FRAME_CLOSED : (frame == 1) ? PAC_FRAME_HALF : PAC_FRAME_OPEN;
     blit(rows, PAC_FRAME_CLOSED_ROWS, PAC_FRAME_CLOSED_COLS, left, top, s, matrix->color565(255, 255, 0), !facingRight);
 }
@@ -186,7 +187,7 @@ void PacmanClock::drawGhost(int cx, int cy, int s, uint16_t color, int skirtFram
     int left = cx - w / 2;
     int top = cy - h / 2;
     if (left + w <= 0 || left >= matrix->width()) return;
-    matrix->fillRect(left, top, w, h, 0);
+    // As with Pac-Man: only the ghost's own pixels cover the clock, not its bounding box.
 
     uint16_t body = frightened ? matrix->color565(33, 33, 255) : color;
     blit(GHOST_BODY, GHOST_BODY_ROWS, cols, left, top, s, body, false);
