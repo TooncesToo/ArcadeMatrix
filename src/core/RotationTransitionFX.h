@@ -68,6 +68,16 @@ public:
     bool isRunning() const { return _active; }
 
     /**
+     * @brief Freeze the animation at its covered midpoint.
+     *
+     * The incoming engine does not always have a frame ready when the effect would finish: a GIF is
+     * still reading its file, a weather screen has not repainted yet. Holding keeps the panel
+     * covered instead of revealing black, and the reveal plays as soon as the hold is released.
+     */
+    void setHold(bool hold) { _holding = hold; }
+    bool isHolding() const { return _holding && _active; }
+
+    /**
      * @brief Forces active transition to stop immediately.
      */
     void stop();
@@ -85,6 +95,7 @@ public:
 private:
     bool _active;
     bool _apexApplied;
+    bool _holding = false;
     uint8_t _fromRot;
     uint8_t _toRot;
     RotationEffect _configuredEffect;

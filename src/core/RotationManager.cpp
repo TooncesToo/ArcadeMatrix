@@ -308,6 +308,8 @@ void RotationManager::switchToModule(int index) {
           if (m_slotEffect != RotationEffect::NONE) {
               m_slotFx.start(0, 0, m_slotEffect, (uint32_t)m_slotFxMs,
                              m_ctx->getMatrix()->width(), m_ctx->getMatrix()->height());
+              m_awaitingFirstFrame = true;
+              m_slotFxStartedMs = millis();
           }
       }
   }
@@ -467,6 +469,12 @@ bool RotationManager::loop() {
     // The transition paints over whatever the engine just drew, so a GIF can spend the animation
     // opening its file instead of showing a blank panel.
     if (m_slotFx.isRunning() && m_ctx && m_ctx->getMatrix()) {
+        // Hold the cover until the new engine actually produces a frame, so the reveal never lands
+        // on a blank panel (a GIF still reading its file, a weather screen yet to repaint). Bounded,
+        // so a slot that never draws cannot freeze the rotation.
+        if (m_awaitingFirstFrame && shouldFlip) m_awaitingFirstFrame = false;
+        bool overdue = (millis() - m_slotFxStartedMs) > (uint32_t)(m_slotFxMs + 2500);
+        m_slotFx.setHold(m_awaitingFirstFrame && !overdue);
         m_slotFx.render(m_ctx->getMatrix(), nullptr);
         matrixEngine.markExternalDraw();
         shouldFlip = true;
