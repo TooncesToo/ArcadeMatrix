@@ -18,6 +18,11 @@ RotationEffect RotationTransitionFX::parseEffect(const String& name) {
     if (n == "slide" || n == "smooth_slide") return RotationEffect::SMOOTH_SLIDE;
     if (n == "zoom" || n == "tunnel_zoom") return RotationEffect::TUNNEL_ZOOM;
     if (n == "matrix" || n == "matrix_rain") return RotationEffect::MATRIX_RAIN;
+    if (n == "wipe") return RotationEffect::WIPE;
+    if (n == "curtain") return RotationEffect::CURTAIN;
+    if (n == "dissolve") return RotationEffect::DISSOLVE;
+    if (n == "checker" || n == "checkerboard") return RotationEffect::CHECKER;
+    if (n == "shutter" || n == "blinds") return RotationEffect::SHUTTER;
     if (n == "random") return RotationEffect::RANDOM;
     return RotationEffect::NONE;
 }
@@ -83,7 +88,9 @@ void RotationTransitionFX::start(uint8_t fromRot, uint8_t toRot, RotationEffect 
     _active = true;
 
     if (_configuredEffect == RotationEffect::RANDOM) {
-        uint8_t r = random(1, 6);
+        // 1..5 are the orientation effects, 7..11 the slot ones; 6 is RANDOM itself, so skip it.
+        uint8_t r = random(1, 11);
+        if (r >= 6) r++;
         _activeEffect = static_cast<RotationEffect>(r);
     } else {
         _activeEffect = _configuredEffect;
@@ -130,6 +137,11 @@ bool RotationTransitionFX::render(Adafruit_GFX* display, void (*onApexReached)(u
     int16_t h = display->height();
 
     switch (_activeEffect) {
+        case RotationEffect::WIPE:     renderWipe(display, progress, w, h); return true;
+        case RotationEffect::CURTAIN:  renderCurtain(display, progress, w, h); return true;
+        case RotationEffect::DISSOLVE: renderDissolve(display, progress, w, h); return true;
+        case RotationEffect::CHECKER:  renderChecker(display, progress, w, h); return true;
+        case RotationEffect::SHUTTER:  renderShutter(display, progress, w, h); return true;
         case RotationEffect::PARTICLE_VORTEX:
             renderVortex(display, progress, w, h);
             break;
@@ -270,5 +282,84 @@ void RotationTransitionFX::renderMatrixRain(Adafruit_GFX* display, float progres
                 display->drawPixel(colX, ty, greenShade);
             }
         }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Slot transitions: the first half covers the panel, the second half reveals it
+// again, so whatever is being loaded behind has time to arrive.
+// ---------------------------------------------------------------------------
+
+static inline uint16_t fxAccent(uint8_t step) {
+    static const uint16_t palette[] = { 0x07FF, 0x07E0, 0xFD20, 0xF81F, 0xFFE0 };
+    return palette[step % 5];
+}
+
+void RotationTransitionFX::renderWipe(Adafruit_GFX* display, float progress, int16_t w, int16_t h) {
+    display->fillScreen(0x0000);
+    bool closing = progress < 0.5f;
+    float t = closing ? (progress * 2.0f) : (1.0f - (progress - 0.5f) * 2.0f);
+    int16_t edge = (int16_t)(t * w);
+    if (edge > 0) display->fillRect(closing ? 0 : w - edge, 0, edge, h, 0x2104);   // near-black veil
+    int16_t barX = closing ? edge : w - edge;
+    display->drawFastVLine(barX, 0, h, fxAccent(0));
+    display->drawFastVLine(barX + (closing ? -1 : 1), 0, h, 0x0410);
+}
+
+void RotationTransitionFX::renderCurtain(Adafruit_GFX* display, float progress, int16_t w, int16_t h) {
+    display->fillScreen(0x0000);
+    bool closing = progress < 0.5f;
+    float t = closing ? (progress * 2.0f) : (1.0f - (progress - 0.5f) * 2.0f);
+    int16_t half = (int16_t)(t * (w / 2 + 1));
+    if (half > 0) {
+        display->fillRect(0, 0, half, h, 0x2104);
+        display->fillRect(w - half, 0, half, h, 0x2104);
+        display->drawFastVLine(half - 1, 0, h, fxAccent(1));
+        display->drawFastVLine(w - half, 0, h, fxAccent(1));
+    }
+}
+
+void RotationTransitionFX::renderDissolve(Adafruit_GFX* display, float progress, int16_t w, int16_t h) {
+    display->fillScreen(0x0000);
+    bool closing = progress < 0.5f;
+    float t = closing ? (progress * 2.0f) : (1.0f - (progress - 0.5f) * 2.0f);
+    // A fixed lattice thinned by `t`: cheap, and it reads as the picture breaking up.
+    int step = 2;
+    uint16_t colour = fxAccent(2);
+    for (int16_t y = 0; y < h; y += step) {
+        for (int16_t x = 0; x < w; x += step) {
+            uint8_t nibble = (uint8_t)(((x * 7) ^ (y * 13)) & 0x0F);
+            if (nibble < (uint8_t)(t * 16.0f)) display->drawPixel(x + (y & 1), y, colour);
+        }
+    }
+}
+
+void RotationTransitionFX::renderChecker(Adafruit_GFX* display, float progress, int16_t w, int16_t h) {
+    display->fillScreen(0x0000);
+    bool closing = progress < 0.5f;
+    float t = closing ? (progress * 2.0f) : (1.0f - (progress - 0.5f) * 2.0f);
+    int16_t cell = (h >= 32) ? 8 : 4;
+    int cols = (w + cell - 1) / cell, rows = (h + cell - 1) / cell;
+    int total = cols * rows;
+    int filled = (int)(t * total);
+    for (int i = 0; i < total; i++) {
+        int idx = ((i * 7) + ((i % 3) * 11)) % total;   // scattered order, no allocation
+        if (idx >= filled) continue;
+        int16_t cx = (i % cols) * cell, cy = (i / cols) * cell;
+        display->fillRect(cx, cy, cell - 1, cell - 1, (i & 1) ? 0x2104 : fxAccent(3));
+    }
+}
+
+void RotationTransitionFX::renderShutter(Adafruit_GFX* display, float progress, int16_t w, int16_t h) {
+    display->fillScreen(0x0000);
+    bool closing = progress < 0.5f;
+    float t = closing ? (progress * 2.0f) : (1.0f - (progress - 0.5f) * 2.0f);
+    int16_t slat = (h >= 32) ? 8 : 4;
+    int16_t fill = (int16_t)(t * slat);
+    if (fill <= 0) return;
+    for (int16_t y = 0; y < h; y += slat) {
+        display->fillRect(0, y, w, fill, 0x2104);
+        display->drawFastHLine(0, y + fill - 1, w, fxAccent(4));
     }
 }
