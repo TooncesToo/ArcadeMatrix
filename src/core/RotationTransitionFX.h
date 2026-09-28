@@ -13,7 +13,12 @@ enum class RotationEffect : uint8_t {
     SMOOTH_SLIDE = 3,
     TUNNEL_ZOOM = 4,
     MATRIX_RAIN = 5,
-    RANDOM = 6
+    RANDOM = 6,
+    WIPE = 7,          ///< a bar sweeps across and takes the picture with it
+    CURTAIN = 8,       ///< closes from both sides, then opens again
+    DISSOLVE = 9,      ///< the picture breaks up into pixels
+    CHECKER = 10,      ///< squares fill in, then clear
+    SHUTTER = 11       ///< horizontal slats close and open
 };
 
 /**
@@ -96,6 +101,11 @@ private:
     void renderSlide(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
     void renderZoom(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
     void renderMatrixRain(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
+    void renderWipe(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
+    void renderCurtain(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
+    void renderDissolve(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
+    void renderChecker(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
+    void renderShutter(Adafruit_GFX* display, float progress, int16_t w, int16_t h);
 
     uint16_t getRandomArcadeColor();
 };

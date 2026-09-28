@@ -304,6 +304,11 @@ void RotationManager::switchToModule(int index) {
               m_ctx->getMatrix()->fillScreen(0);
           }
           matrixEngine.markExternalDraw();
+          // Cover that gap with the configured effect; the next engine loads underneath it.
+          if (m_slotEffect != RotationEffect::NONE) {
+              m_slotFx.start(0, 0, m_slotEffect, (uint32_t)m_slotFxMs,
+                             m_ctx->getMatrix()->width(), m_ctx->getMatrix()->height());
+          }
       }
   }
 
@@ -459,6 +464,14 @@ bool RotationManager::loop() {
         currentIndex = (currentIndex + 1) % guard->rotation.size();
         switchToModule(currentIndex);
     }
+    // The transition paints over whatever the engine just drew, so a GIF can spend the animation
+    // opening its file instead of showing a blank panel.
+    if (m_slotFx.isRunning() && m_ctx && m_ctx->getMatrix()) {
+        m_slotFx.render(m_ctx->getMatrix(), nullptr);
+        matrixEngine.markExternalDraw();
+        shouldFlip = true;
+    }
+
     return shouldFlip;
 }
 
