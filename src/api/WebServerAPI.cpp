@@ -633,7 +633,8 @@ void WebServerAPI::setupRoutes() {
             {18, "Cyberpunk"}, {19, "Flip Clock"}, {20, "Custom Gradient"},
             {21, "True Matrix"}, {22, "Pong Clock"}, {23, "Tetris Clock"},
             {24, "Word Clock"}, {25, "Binary Clock"}, {26, "Pac-Man Clock"},
-            {27, "Versus Clock"}, {28, "Slot Machine Clock"}, {29, "Tetris Game Boy"}
+            {27, "Versus Clock"}, {28, "Slot Machine Clock"}, {29, "Tetris Game Boy"},
+            {30, "Mario Clock"}
         };
         for (const auto& t : themes) {
             JsonObject obj = arr.createNestedObject();
