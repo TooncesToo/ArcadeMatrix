@@ -98,6 +98,25 @@ public:
         return true;
     }
 
+    /**
+     * Print `str` at (x, y) in `color`, adding the configured glow outline. Every animated face draws
+     * its text through this, so one font at one size looks the same whichever face is showing.
+     */
+    static void print(Adafruit_GFX& gfx, const EngineConfig* cfg, int x, int y, const char* str, uint16_t color) {
+        uint16_t halo = 0, core = color;
+        // With no glow configured the ring is drawn in black, which is what the faces did on their
+        // own: invisible against the panel, but it keeps the digits legible over artwork.
+        if (!glowFor(cfg, color, halo, core)) halo = 0;
+        gfx.setTextColor(halo);
+        gfx.setCursor(x - 1, y); gfx.print(str);
+        gfx.setCursor(x + 1, y); gfx.print(str);
+        gfx.setCursor(x, y - 1); gfx.print(str);
+        gfx.setCursor(x, y + 1); gfx.print(str);
+        gfx.setTextColor(core);
+        gfx.setCursor(x, y);
+        gfx.print(str);
+    }
+
     /// Horizontal cursor advance of one glyph at text size 1 (built-in font: 6 px per character).
     static int advance(const GFXfont* f, char c) {
         if (!f) return 6;
