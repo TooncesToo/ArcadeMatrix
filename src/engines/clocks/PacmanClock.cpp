@@ -337,24 +337,11 @@ void PacmanClock::update() {
                 // Leg 0: Pac-Man eats old hours transformed into pellets, reveals new hours
                 int headX = (int)roundf(-pacW / 2.0f + legPos);
                 int cutX = headX + pacW / 2;
-                int revealX = (int)(headX - chaseLen - ghostW / 2);
-                int margin = max(1, (cutX - revealX) / 2);
-                int dissolveDist = 10 * s;
-                int oldMinX = cutX + dissolveDist;
 
-                printTime(hNew, cX, cyH, scale, font, color1, color1, -100, revealX + margin);
-                printTime(hOld, cX, cyH, scale, font, oldDigitColor, oldColonColor, oldMinX, w + 100);
-                if (cutX > 0 && revealX < w) {
-                    int rL = max(0, revealX);
-                    int rR = min(w, oldMinX);
-                    if (rR > rL) matrix->fillRect(rL, 0, rR - rL, h / 2, 0);
-                }
-
-                // Pellets ahead of Pac-Man on the hours tier
-                int pelletStep = max(4, 4 * s);
-                for (int px = ((cutX / pelletStep) + 1) * pelletStep; px < w - 2; px += pelletStep) {
-                    if (px > cutX && px < w) matrix->fillRect(px - 1, cyH - 1, 2, 2, dotColor);
-                }
+                // The tier is never blanked: the new hours run up to Pac-Man's mouth and the old ones
+                // continue from it, so the only digits out of sight are those he is standing on.
+                printTime(hNew, cX, cyH, scale, font, color1, color1, -100, cutX);
+                printTime(hOld, cX, cyH, scale, font, oldDigitColor, oldColonColor, cutX, w + 100);
 
                 for (int i = 0; i < 3; i++) matrix->fillRect(dotX[i] - 1, dotY - 1, 2, 2, dotColor);
                 printTime(mOld, cX, cyM, scale, font, oldDigitColor, oldColonColor);
@@ -379,24 +366,10 @@ void PacmanClock::update() {
 
                 int headX = (int)roundf(-pacW / 2.0f + legPos);
                 int cutX = headX + pacW / 2;
-                int revealX = (int)(headX - chaseLen - ghostW / 2);
-                int margin = max(1, (cutX - revealX) / 2);
-                int dissolveDist = 10 * s;
-                int oldMinX = cutX + dissolveDist;
 
-                printTime(mNew, cX, cyM, scale, font, color1, color1, -100, revealX + margin);
-                printTime(mOld, cX, cyM, scale, font, oldDigitColor, oldColonColor, oldMinX, w + 100);
-                if (cutX > 0 && revealX < w) {
-                    int rL = max(0, revealX);
-                    int rR = min(w, oldMinX);
-                    if (rR > rL) matrix->fillRect(rL, h / 2, rR - rL, h - h / 2, 0);
-                }
-
-                // Pellets ahead of Pac-Man on the minutes tier
-                int pelletStep = max(4, 4 * s);
-                for (int px = ((cutX / pelletStep) + 1) * pelletStep; px < w - 2; px += pelletStep) {
-                    if (px > cutX && px < w) matrix->fillRect(px - 1, cyM - 1, 2, 2, dotColor);
-                }
+                // Same as the hours tier: digits everywhere, the parade simply passes in front of them.
+                printTime(mNew, cX, cyM, scale, font, color1, color1, -100, cutX);
+                printTime(mOld, cX, cyM, scale, font, oldDigitColor, oldColonColor, cutX, w + 100);
 
                 if (!inPause) parade(2, legPos, cyM);
             }
@@ -413,43 +386,22 @@ void PacmanClock::update() {
                 // Leg 0: Old time transforms into pellets, Pac-Man eats pellets, new time revealed behind Clyde
                 int headX = (int)roundf(-pacW / 2.0f + legPos);
                 int cutX = headX + pacW / 2;
-                int revealX = (int)(headX - chaseLen - ghostW / 2);
-                int margin = max(1, (cutX - revealX) / 2);
+                // The time is never blanked. New digits run up to Pac-Man's mouth, old digits continue
+                // from it, so the clock only goes out of sight where a character is actually standing.
+                printTime(newTimeStr, cX, cY, scale, font, color1, colonColor, -100, cutX);
+                printTime(oldTimeStr, cX, cY, scale, font, oldDigitColor, oldColonColor, cutX, w + 100);
 
-                // 1. Draw new time revealed on left behind Clyde
-                printTime(newTimeStr, cX, cY, scale, font, color1, colonColor, -100, revealX + margin);
-
-                // 2. Old time starts dissolving into pellets ahead of Pac-Man:
-                int dissolveDist = 14 * s;
-                int oldMinX = cutX + dissolveDist;
-                printTime(oldTimeStr, cX, cY, scale, font, oldDigitColor, oldColonColor, oldMinX, w + 100);
-
-                // 3. Clear the parade gap and dissolve zone
-                if (cutX > 0 && revealX < w) {
-                    int rL = max(0, revealX);
-                    int rR = min(w, oldMinX);
-                    if (rR > rL) matrix->fillRect(rL, 0, rR - rL, h, 0);
-                }
-
-                // 4. In the dissolve zone, draw the pellets (points que Pac-Man mange!)
-                int pelletStep = max(5, 5 * s);
                 int energizerX = w - 4 * s;
 
-                for (int px = ((cutX / pelletStep) + 1) * pelletStep; px < energizerX - pelletStep / 2; px += pelletStep) {
-                    if (px > cutX && px < w) {
-                        matrix->fillRect(px - 1, cY - 1, 2, 2, dotColor);
-                    }
-                }
-
-                // Crumbling particle dissolution effect at the dissolve front:
-                if (oldMinX < w - 6) {
-                    uint8_t seed = (now / 40) ^ (uint8_t)oldMinX;
-                    for (int p = 0; p < 6; p++) {
-                        int pOffX = ((seed + p * 7) % (6 * s)) - 3 * s;
-                        int pOffY = ((seed * 3 + p * 11) % (12 * s)) - 6 * s;
-                        int px = oldMinX + pOffX;
+                // A few crumbs at the mouth, so he still reads as eating the old time.
+                {
+                    uint8_t seed = (now / 40) ^ (uint8_t)cutX;
+                    for (int p = 0; p < 4; p++) {
+                        int pOffX = (int)((seed + p * 7) % (uint8_t)(3 * s));
+                        int pOffY = ((seed * 3 + p * 11) % (8 * s)) - 4 * s;
+                        int px = cutX + pOffX;
                         int py = cY + pOffY;
-                        if (px > cutX && px < w && py >= 0 && py < h) {
+                        if (px < w && py >= 0 && py < h) {
                             matrix->drawPixel(px, py, dotColor);
                         }
                     }
