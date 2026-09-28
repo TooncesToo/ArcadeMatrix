@@ -90,7 +90,9 @@ void PacmanClock::printTime(const char* str, int centreX, int centreY, int scale
     int colonAdv = ClockFaceFont::advance(font, ':') * scale;
     int slotColonW = max((int)bw, colonAdv);
 
-    int gap = max(1, scale);
+    // No gap beyond the font's own advance: a scale-sized gap made the same font at the same size
+    // look wider here than on every other face. Tabular cells still keep the digits from shifting.
+    int gap = 0;
 
     int cellW[11], inkOff[11];
     int total = 0;
