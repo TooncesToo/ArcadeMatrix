@@ -23,6 +23,12 @@ public:
     virtual void update() = 0; 
     virtual void onDisplayGeometryChanged(const DisplayGeometry& geometry) {}
 
+    /// False when the face paints every pixel itself and wants the previous frame left alone, which
+    /// is what lets a face repaint only the part that moved instead of the whole panel.
+    virtual bool wantsClear() const { return true; }
+    /// False when nothing has changed since the last frame, so the rotation can skip the flip.
+    virtual bool hasNewFrame() const { return true; }
+
 protected:
     MatrixPanel_I2S_DMA* matrix;
 };
@@ -46,6 +52,8 @@ public:
     // IEngine implementation
     EngineError initialize(EngineContext* context, const EngineConfig* config) override;
     void activate() override;
+    bool needsClear() const override;
+    bool hasNewFrame() const override;
     void update(EngineContext* context) override;
     void render(EngineContext* context) override;
     void deactivate() override;

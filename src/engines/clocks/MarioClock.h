@@ -23,6 +23,10 @@ public:
     MarioClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config = nullptr);
     void draw(const TimeData& t) override;
     void update() override;
+    void onDisplayGeometryChanged(const DisplayGeometry& geometry) override;
+    /// The face paints every pixel of the scene itself, and only when something moved.
+    bool wantsClear() const override { return false; }
+    bool hasNewFrame() const override { return m_hasFrame; }
 
 private:
     enum class Phase : uint8_t { Waiting, RunIn, Jump, RunOut };
@@ -40,15 +44,13 @@ private:
     bool pendingDigits = false; ///< digits flip when the block is actually hit
     char shownHH[4] = "--";
     char shownMM[4] = "--";
-    uint8_t runFrame = 0;
 
-    void drawScene(int w, int h, int s);
-    void drawGround(int w, int h, int s);
-    void drawHill(int cx, int baseY, int s);
-    void drawCloud(int x, int y, int s);
-    void drawBlock(int cx, int cy, int s, const char* text, bool lit);
-    void drawRunner(int cx, int footY, int s, bool airborne);
-    void blitMask(const char* const* rows, int rowCount, int cols, int left, int top, int s, bool mirror);
+    uint8_t m_dirty = 2;        ///< full repaints still owed (both DMA buffers)
+    bool m_hasFrame = true;
+
+    void drawScene(int w, int h);
+    void drawBlockAt(int x, int y, const char* text);
+    void blitSprite(const uint16_t* data, int w, int h, int x, int y, bool transparent);
 };
 
 #endif

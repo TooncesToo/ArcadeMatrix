@@ -117,6 +117,14 @@ EngineError ClockEngine::initialize(EngineContext* context, const EngineConfig* 
     return EngineError::OK;
 }
 
+bool ClockEngine::needsClear() const {
+    return activeFace ? activeFace->wantsClear() : true;
+}
+
+bool ClockEngine::hasNewFrame() const {
+    return activeFace ? activeFace->hasNewFrame() : true;
+}
+
 void ClockEngine::activate() {
     // Clock is active, maybe reset time fetcher
 }
