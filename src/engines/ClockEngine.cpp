@@ -9,6 +9,9 @@
 #include "clocks/BinaryClock.h"
 #include "clocks/PacmanClock.h"
 #include "clocks/MarioClock.h"
+#include "clocks/CastleClock.h"
+#include "clocks/PokedexClock.h"
+#include "clocks/WorldMapClock.h"
 #include "clocks/VersusClock.h"
 #include "clocks/SlotMachineClock.h"
 #include "clocks/MatrixRainClock.h"
@@ -61,6 +64,12 @@ void ClockEngine::setTheme(PublisherTheme theme, bool forceReload, const EngineC
         activeFace = new SlotMachineClock(matrixDisplay, config);
     } else if (theme == 30) {
         activeFace = new MarioClock(matrixDisplay, config);
+    } else if (theme == 31) {
+        activeFace = new CastleClock(matrixDisplay, config);
+    } else if (theme == 32) {
+        activeFace = new PokedexClock(matrixDisplay, config);
+    } else if (theme == 33) {
+        activeFace = new WorldMapClock(matrixDisplay, config);
     } else {
         ArcadeClock* arcade = new ArcadeClock(matrixDisplay, config);
         arcade->setTheme(theme);

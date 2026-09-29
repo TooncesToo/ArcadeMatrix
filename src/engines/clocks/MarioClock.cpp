@@ -89,7 +89,9 @@ void MarioClock::update() {
     const int blockY = (h >= 64) ? 8 : 2;
 
     char hh[4], mm[4];
-    snprintf(hh, sizeof(hh), "%02d", storedTime.hours);
+    // The original prints the hour unpadded, and the block centres one digit differently from two,
+    // so 12-hour time reads "1" rather than "01".
+    snprintf(hh, sizeof(hh), "%d", storedTime.hours);
     snprintf(mm, sizeof(mm), "%02d", storedTime.minutes);
 
     uint32_t now = millis();
