@@ -31,6 +31,14 @@ public:
     
     // WordClock
     static std::vector<String> getWordClockLines(int hours, int minutes);
+
+    // Dates
+    /// Three-letter month label ("SEP", "SEPT", "SEP"), month0 is 0-11.
+    static const char* getMonthLabel(int month0, Lang l);
+    /// A date line in the order the language uses: "MON SEP 28", "LUN 28 SEPT", "LUN 28 SEP".
+    static String getDateLine(int weekday, int month0, int day, Lang l);
+    /// The time spoken as words, split into the hour line and the minute line beneath it.
+    static void getSpokenTime(int hours, int minutes, Lang l, String& hourWords, String& minuteWords);
     
     // Noise / Decibel
     static const char* getNoiseLevelLabel(int level);
