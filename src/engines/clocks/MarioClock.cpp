@@ -47,7 +47,11 @@ void MarioClock::drawBlockAt(int x, int y, const char* text) {
     blitSprite(BLOCK, BLOCK_W, BLOCK_H, x, y, false);
     matrix->setFont(&Super_Mario_Bros__24pt7b);
     matrix->setTextSize(1);
-    ClockFaceFont::print(*matrix, engineConfig, x + (strlen(text) == 1 ? 6 : 2), y + 12, text, 0x0000);
+    // Its own font at its own size, and no outline: the digits sit in a 19 px block, where a
+    // halo closes the counters and makes them unreadable.
+    matrix->setTextColor(0x0000);
+    matrix->setCursor(x + (strlen(text) == 1 ? 6 : 2), y + 12);
+    matrix->print(text);
     matrix->setFont(nullptr);
 }
 
