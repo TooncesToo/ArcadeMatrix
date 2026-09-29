@@ -55,8 +55,10 @@ void MarioClock::drawBlockAt(int x, int y, const char* text) {
     matrix->setFont(nullptr);
 }
 
-// The scene: the square original in the middle, with the ground, bushes and clouds carried out to
-// both edges so a wide panel looks like more of the same level rather than a stretched one.
+// The scene: the square original in the middle, with the ground and clouds carried out to both
+// edges so a wide panel looks like more of the same level rather than a stretched one. The hill and
+// the bush are each cut down one side to sit against a frame edge, so there is one of each, at the
+// edge it was drawn for.
 void MarioClock::drawScene(int w, int h) {
     const int sceneLeft = (w - SCENE) / 2;
     matrix->fillRect(0, 0, w, h, SKY_COLOR);
@@ -72,10 +74,11 @@ void MarioClock::drawScene(int w, int h) {
     // the original.
     blitSprite(HILL, HILL_W, HILL_H, 0, groundTop - HILL_H + 2, true);
 
-    // Bushes are whole sprites, so they carry on across the extra width; clouds ride above.
-    for (int x = sceneLeft % 64 - 64; x < w; x += 64) {
-        blitSprite(BUSH, BUSH_W, BUSH_H, x + 43, groundTop - BUSH_H, true);
-    }
+    // The bush is the hill's mirror: cut down its right side, drawn to sit flush against the other
+    // frame edge (x 43 of 64, so its right edge lands exactly on it). One, against the right edge.
+    blitSprite(BUSH, BUSH_W, BUSH_H, w - BUSH_W, groundTop - BUSH_H, true);
+
+    // Clouds are whole sprites, so they carry on across the extra width.
     for (int x = sceneLeft % 64 - 64; x < w; x += 51) {
         blitSprite(CLOUD1, CLOUD_W, CLOUD_H, x, 8, true);
         blitSprite(CLOUD2, CLOUD_W, CLOUD_H, x + 25, 2, true);
