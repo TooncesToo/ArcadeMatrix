@@ -77,7 +77,20 @@ void MarioClock::update() {
     if (!matrix) return;
     const int w = matrix->width();
     const int h = matrix->height();
-    if (w < SCENE || h < 32) return;
+    if (w < 192 || h < 64) {     // laid out for a wide panel; see the theme name
+        if (m_dirty == 0) { m_hasFrame = false; return; }
+        m_dirty--;
+        m_hasFrame = true;
+        matrix->fillRect(0, 0, w, h, 0x0000);
+        matrix->setFont(nullptr);
+        matrix->setTextSize(1);
+        matrix->setTextColor(matrix->color565(255, 160, 0));
+        matrix->setCursor(2, h / 2 - 7);
+        matrix->print("NEEDS");
+        matrix->setCursor(2, h / 2 + 1);
+        matrix->print("256x64");
+        return;
+    }
 
     const int sceneLeft = (w - SCENE) / 2;
     const int groundTop = h - GROUND_H;
