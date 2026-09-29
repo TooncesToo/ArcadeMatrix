@@ -1,4 +1,7 @@
 #pragma once
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <vector>
@@ -44,10 +47,23 @@ public:
     void forceUpdate() { lastFetchTime = 0; }
 
     bool hasValidData() const { return validData; }
+    /// State of the last fetch, for /api/stats: whether data is in hand, how many days, how long
+    /// ago the last attempt was, and what stopped it.
+    struct FetchState { bool valid; uint8_t days; uint32_t lastAttemptAgeS; char lastError[40]; };
+    static FetchState fetchState();
 
 private:
     MatrixPanel_I2S_DMA* matrix;
     std::vector<IWeatherProvider*> providers;
+    // The forecast is fetched on a task of its own. Doing it from loop() meant the render path
+    // stopped for the length of an HTTPS round trip, which showed as a black panel for a second or
+    // more right after the rotation switched to weather.
+    TaskHandle_t m_fetchTask = nullptr;
+    SemaphoreHandle_t m_dataMutex = nullptr;
+    volatile bool m_newData = false;
+    void startFetchTask();
+    static void fetchTaskEntry(void* arg);
+    void fetchOnce();
     WeatherData forecasts[MAX_FORECAST_DAYS];
     int numForecasts;
     bool validData;
