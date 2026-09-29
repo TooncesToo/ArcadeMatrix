@@ -2,6 +2,7 @@
 #include "PokedexAssets.h"
 #include "PokedexFont.h"
 #include "ClockwiseScene.h"
+#include "ClockFaceFont.h"
 #include <stdio.h>
 
 namespace {
@@ -36,14 +37,11 @@ void PokedexClock::drawFace(int w, int h) {
     // Time, in the face's own font.
     matrix->setFont(&PKMN_RBYGSC4pt7b);
     matrix->setTextSize(1);
-    matrix->setTextColor(0xFFFF);
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", storedTime.hours);
-    matrix->setCursor(mapX(35, w, h), mapY(22, h));
-    matrix->print(buf);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(35, w, h), mapY(22, h), buf, 0xFFFF);
     snprintf(buf, sizeof(buf), "%02d", storedTime.minutes);
-    matrix->setCursor(mapX(46, w, h), mapY(30, h));
-    matrix->print(buf);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(46, w, h), mapY(30, h), buf, 0xFFFF);
     matrix->setFont(nullptr);
 
     // Weekday marker: two rows of four, as in the original.

@@ -1,6 +1,7 @@
 #include "WorldMapClock.h"
 #include "WorldMapAssets.h"
 #include "SmallFont.h"
+#include "ClockFaceFont.h"
 #include "ClockwiseScene.h"
 #include <stdio.h>
 #include <time.h>
@@ -104,9 +105,7 @@ void WorldMapClock::update() {
     snprintf(buf, sizeof(buf), "%d:%02d", storedTime.hours, storedTime.minutes);
     matrix->setFont(&small4pt7b);
     matrix->setTextSize(1);
-    matrix->setTextColor(0xFFFF);
-    matrix->setCursor(mapX(1, w, h), mapY(62, h));
-    matrix->print(buf);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(1, w, h), mapY(62, h), buf, 0xFFFF);
     matrix->setFont(nullptr);
 }
 

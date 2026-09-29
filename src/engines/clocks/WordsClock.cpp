@@ -1,4 +1,5 @@
 #include "WordsClock.h"
+#include "ClockFaceFont.h"
 #include "WordsHourFont.h"
 #include "WordsMinuteFont.h"
 #include <string.h>
@@ -36,9 +37,8 @@ void WordsClockFace::drawCentred(const char* text, int centreY, const GFXfont* f
     int16_t bx, by;
     uint16_t bw, bh;
     matrix->getTextBounds(text, 0, 0, &bx, &by, &bw, &bh);
-    matrix->setTextColor(color);
-    matrix->setCursor((panelW - (int)bw) / 2 - bx, centreY - (int)bh / 2 - by);
-    matrix->print(text);
+    ClockFaceFont::print(*matrix, engineConfig, (panelW - (int)bw) / 2 - bx,
+                         centreY - (int)bh / 2 - by, text, color);
     matrix->setFont(nullptr);
 }
 
