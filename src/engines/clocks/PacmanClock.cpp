@@ -1,5 +1,6 @@
 #include "PacmanClock.h"
 #include "PacmanSprites.h"
+#include "MsPacSprites.h"
 #include "../../core/ConfigLoader.h"
 #include <math.h>
 
@@ -125,7 +126,12 @@ void PacmanClock::printTime(const char* str, int centreX, int centreY, int scale
             uint16_t col = (str[i] == ':') ? colonColor : digitColor;
             if (col != 0) {
                 uint16_t glowColor = 0, coreColor = col;
-                if (ClockFaceFont::glowFor(engineConfig, col, glowColor, coreColor)) {   // as the Matrix face draws it
+                bool glow = ClockFaceFont::glowFor(engineConfig, col, glowColor, coreColor);
+                if (!glow && msVariant) {     // her digits carry her own colour by default
+                    glow = true;
+                    glowColor = matrix->color565(255, 60, 160);
+                }
+                if (glow) {
                     matrix->setTextColor(glowColor);
                     matrix->setCursor(charLeft - 1, cursorY); matrix->write((uint8_t)str[i]);
                     matrix->setCursor(charLeft + 1, cursorY); matrix->write((uint8_t)str[i]);
@@ -174,14 +180,28 @@ void PacmanClock::drawPacman(int cx, int cy, int s, int frame, bool facingRight)
     if (left + w <= 0 || left >= matrix->width()) return;
     // No box behind the sprite: the frame is already cleared, and blanking the bounding box put a
     // black square in the open mouth and around the round edges, hiding digits Pac-Man is not on.
+    if (msVariant) {
+        const char* const* art = (frame == 0) ? MSPAC_CLOSED : (frame == 1) ? MSPAC_HALF : MSPAC_OPEN;
+        for (int r = 0; r < MSPAC_ROWS; r++) {
+            const char* row = art[r];
+            for (int c = 0; c < MSPAC_COLS; c++) {
+                char ch = row[facingRight ? c : (MSPAC_COLS - 1 - c)];
+                uint16_t col;
+                switch (ch) {
+                    case 'y': col = matrix->color565(255, 255, 0); break;
+                    case 'r': col = matrix->color565(228, 0, 88); break;      // bow
+                    case 'p': col = matrix->color565(255, 150, 200); break;   // bow highlight
+                    case 'k': col = matrix->color565(16, 16, 40); break;      // eye
+                    case 'l': col = matrix->color565(255, 80, 150); break;    // lips
+                    default: continue;
+                }
+                matrix->fillRect(left + c * s, top + r * s, s, s, col);
+            }
+        }
+        return;
+    }
     const uint16_t* rows = (frame == 0) ? PAC_FRAME_CLOSED : (frame == 1) ? PAC_FRAME_HALF : PAC_FRAME_OPEN;
     blit(rows, PAC_FRAME_CLOSED_ROWS, PAC_FRAME_CLOSED_COLS, left, top, s, matrix->color565(255, 255, 0), !facingRight);
-    if (msVariant) {
-        // Bow above the head, an eye, and lips at the mouth: the body underneath is unchanged.
-        blit(MS_BOW, MS_BOW_ROWS, MS_BOW_COLS, left, top - 2 * s, s, matrix->color565(255, 40, 80), !facingRight);
-        blit(MS_EYE, MS_EYE_ROWS, MS_EYE_COLS, left, top + 3 * s, s, matrix->color565(24, 24, 48), !facingRight);
-        blit(MS_LIPS, MS_LIPS_ROWS, MS_LIPS_COLS, left, top + 6 * s, s, matrix->color565(220, 40, 90), !facingRight);
-    }
 }
 
 // 14x14 ghost: 12-row body, 2-row skirt (two frames). Normal ghosts get white eyes with pupils looking
