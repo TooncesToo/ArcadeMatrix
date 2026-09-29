@@ -17,6 +17,9 @@ class CwMazeFace;
  */
 class PacmanMazeClock : public ClockFace {
 public:
+    /// Last frame's state, for /api/stats: how much of the canvas is painted and where Pac-Man is.
+    struct Debug { bool alive; uint16_t litPixels; int16_t pacX; int16_t pacY; uint16_t blits; };
+    static Debug debug();
     PacmanMazeClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config = nullptr);
     ~PacmanMazeClock() override;
     void draw(const TimeData& t) override;
@@ -35,7 +38,14 @@ private:
     bool m_fullBlit = true;
     bool m_hasFrame = true;
 
+    // Zoom: 1 shows the whole scene centred, 2 magnifies it and the view follows Pac-Man, so the
+    // panel is a window onto the maze rather than the whole of it.
+    int m_zoom = 1;
+    int m_camX = 0;
+    int m_camY = 0;
+
     void present(int panelW, int panelH);
+    void presentZoomed(int panelW, int panelH);
 };
 
 #endif

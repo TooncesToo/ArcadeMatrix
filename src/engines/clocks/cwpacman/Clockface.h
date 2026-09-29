@@ -205,6 +205,9 @@ class CwMazeFace {
     
   public:
     CwMazeFace(Adafruit_GFX* display);
+    /// Where Pac-Man is in the scene, for a view that follows him.
+    int pacmanX() const { return pacman ? pacman->_x : 32; }
+    int pacmanY() const { return pacman ? pacman->_y : 32; }
     ~CwMazeFace();
     void setup(CWDateTime *dateTime);
     void update();

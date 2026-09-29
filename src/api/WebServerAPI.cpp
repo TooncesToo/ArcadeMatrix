@@ -1,4 +1,5 @@
 #include "WebServerAPI.h"
+#include "../engines/clocks/PacmanMazeClock.h"
 #include "../core/SdSpace.h"
 #include "../core/CpuLoad.h"
 #include "../engines/FighterEngine.h"
@@ -1130,7 +1131,16 @@ void WebServerAPI::setupRoutes() {
             uint32_t loops = g_renderStats.loops.load(), presents = g_renderStats.presents.load();
             uint32_t dtMs = nowMs - lastMs;
             if (lastMs != 0 && dtMs >= 500) {
-                doc["render_loop_fps"] = (float)(loops - lastLoops) * 1000.0f / dtMs;
+                {
+            PacmanMazeClock::Debug md = PacmanMazeClock::debug();
+            JsonObject clockDbg = doc.createNestedObject("clock_face");
+            clockDbg["maze_drawn"] = md.alive;
+            clockDbg["maze_lit_pixels"] = md.litPixels;
+            clockDbg["maze_pac_x"] = md.pacX;
+            clockDbg["maze_pac_y"] = md.pacY;
+            clockDbg["maze_frames"] = md.blits;
+        }
+        doc["render_loop_fps"] = (float)(loops - lastLoops) * 1000.0f / dtMs;
                 doc["render_present_fps"] = (float)(presents - lastPresents) * 1000.0f / dtMs;
             }
             lastMs = nowMs; lastLoops = loops; lastPresents = presents;
