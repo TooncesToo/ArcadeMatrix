@@ -55,11 +55,18 @@ public:
     RotationTransitionFX m_slotFx;
     bool m_awaitingFirstFrame = false;   ///< the slot just changed and its engine has not drawn yet
     uint32_t m_slotFxStartedMs = 0;
+
+    uint32_t m_slotSwitchMs = 0;
     RotationEffect m_slotEffect = RotationEffect::NONE;
     int m_slotFxMs = 500;
     void setDisplayRuntime(DisplayRuntime* dr) { m_displayRuntime = dr; }
 
     /// Effect played over the gap when the rotation moves to the next slot ("none" disables it).
+    /// How long the last slot took to put its first frame up, for /api/stats. A large value is the
+    /// gap the viewer sees as a black panel.
+    struct SlotTiming { char instance[32]; uint16_t firstFrameMs; uint16_t heldMs; };
+    static SlotTiming lastSlotTiming();
+
     void setSlotTransition(const String& effect, int durationMs) {
         m_slotEffect = RotationTransitionFX::parseEffect(effect);
         m_slotFxMs = (durationMs < 100) ? 100 : ((durationMs > 3000) ? 3000 : durationMs);

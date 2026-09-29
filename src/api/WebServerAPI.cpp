@@ -1,5 +1,6 @@
 #include "WebServerAPI.h"
 #include "../engines/clocks/PacmanMazeClock.h"
+#include "../engines/WeatherEngine.h"
 #include "../core/SdSpace.h"
 #include "../core/CpuLoad.h"
 #include "../engines/FighterEngine.h"
@@ -1139,6 +1140,21 @@ void WebServerAPI::setupRoutes() {
             clockDbg["maze_pac_x"] = md.pacX;
             clockDbg["maze_pac_y"] = md.pacY;
             clockDbg["maze_frames"] = md.blits;
+        }
+        {
+            RotationManager::SlotTiming st = RotationManager::lastSlotTiming();
+            JsonObject slot = doc.createNestedObject("slot_timing");
+            slot["instance"] = st.instance;
+            slot["first_frame_ms"] = st.firstFrameMs;
+            slot["still_waiting_ms"] = st.heldMs;
+        }
+        {
+            WeatherEngine::FetchState ws = WeatherEngine::fetchState();
+            JsonObject wx = doc.createNestedObject("weather_fetch");
+            wx["valid"] = ws.valid;
+            wx["days"] = ws.days;
+            wx["last_attempt_age_s"] = ws.lastAttemptAgeS;
+            wx["last_error"] = ws.lastError;
         }
         doc["render_loop_fps"] = (float)(loops - lastLoops) * 1000.0f / dtMs;
                 doc["render_present_fps"] = (float)(presents - lastPresents) * 1000.0f / dtMs;

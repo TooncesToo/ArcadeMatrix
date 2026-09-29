@@ -134,6 +134,17 @@ void WeatherEngine::setCharacter(int characterId) {
     }
 }
 
+namespace {
+WeatherEngine::FetchState g_fetchState{ false, 0, 0, "not started" };
+uint32_t g_lastAttemptMs = 0;
+}
+
+WeatherEngine::FetchState WeatherEngine::fetchState() {
+    WeatherEngine::FetchState s = g_fetchState;
+    s.lastAttemptAgeS = g_lastAttemptMs ? (millis() - g_lastAttemptMs) / 1000 : 0;
+    return s;
+}
+
 void WeatherEngine::startFetchTask() {
     if (m_fetchTask) return;
     if (!m_dataMutex) m_dataMutex = xSemaphoreCreateMutex();
@@ -162,6 +173,7 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
         static unsigned long lastWarn = 0;
         if (millis() - lastWarn > 10000) {
             LOGW("WeatherEngine", "Cannot fetch weather: API Key ('%s') or City ('%s') is missing!", apiKey.c_str(), city.c_str());
+            strlcpy(g_fetchState.lastError, "no api key or city", sizeof(g_fetchState.lastError));
             lastWarn = millis();
         }
         return;
@@ -170,6 +182,7 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
         static unsigned long lastWarnWifi = 0;
         if (millis() - lastWarnWifi > 10000) {
             LOGW("WeatherEngine", "Cannot fetch weather: Wi-Fi not connected!");
+            strlcpy(g_fetchState.lastError, "wifi down", sizeof(g_fetchState.lastError));
             lastWarnWifi = millis();
         }
         return;
@@ -191,6 +204,8 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
 
     // Set lastFetchTime immediately so we don't spam the API on failure
     lastFetchTime = millis();
+    g_lastAttemptMs = lastFetchTime;
+    strlcpy(g_fetchState.lastError, "fetching", sizeof(g_fetchState.lastError));
 
     String reqLang = config_lang;
     if (reqLang.length() == 0) reqLang = "fr";
@@ -216,6 +231,9 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
         }
         validData = true;
         m_newData = true;
+        g_fetchState.valid = true;
+        g_fetchState.days = (uint8_t)freshCount;
+        strlcpy(g_fetchState.lastError, "ok", sizeof(g_fetchState.lastError));
         activeSlide = 0;
         lastSlideChange = millis();
         LOGI("WeatherEngine", "Success! Parsed %d forecast days in %s units.", numForecasts, units.c_str());
@@ -290,6 +308,7 @@ bool WeatherEngine::loop() {
         m_newData = false;
         requestRedraw();
     }
+    if (!validData) requestRedraw();   // keep the notice alive until the first forecast lands
 
     // Cycle through Today/Tomorrow/Day3 every slideDurationMs. Simplified vs. the RPi's eased
     // horizontal-scroll transition (see WeatherEngine.h for rationale).
@@ -305,6 +324,17 @@ bool WeatherEngine::loop() {
     matrix->fillScreen(0);
     if (validData && numForecasts > 0) {
         drawForecast(forecasts[activeSlide % numForecasts]);
+    } else {
+        // No forecast yet: say so rather than leaving the slot black for its whole duration, which
+        // is what it looked like after every restart until the first fetch landed.
+        matrix->setFont(nullptr);
+        matrix->setTextSize((matrix->width() >= 128) ? 2 : 1);
+        matrix->setTextColor(matrix->color565(120, 170, 255));
+        int16_t bx, by; uint16_t bw, bh;
+        const char* msg = "WEATHER...";
+        matrix->getTextBounds(msg, 0, 0, &bx, &by, &bw, &bh);
+        matrix->setCursor((matrix->width() - (int)bw) / 2 - bx, (matrix->height() - (int)bh) / 2 - by);
+        matrix->print(msg);
     }
     return true;
 }

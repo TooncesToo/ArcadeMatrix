@@ -250,6 +250,12 @@ void RotationManager::resetRotation() {
     queueAction(RotationAction::RESET_ROTATION);
 }
 
+namespace {
+RotationManager::SlotTiming g_slotTiming{ "", 0, 0 };
+}
+
+RotationManager::SlotTiming RotationManager::lastSlotTiming() { return g_slotTiming; }
+
 void RotationManager::switchToModule(int index) {
   extern ConfigLoader config;
   ConfigSnapshotGuard guard = config.acquireSnapshot();
@@ -313,6 +319,12 @@ void RotationManager::switchToModule(int index) {
           }
       }
   }
+
+  m_slotSwitchMs = millis();
+  m_awaitingFirstFrame = true;
+  strlcpy(g_slotTiming.instance, newInstanceId.c_str(), sizeof(g_slotTiming.instance));
+  g_slotTiming.firstFrameMs = 0;
+  g_slotTiming.heldMs = 0;
 
   // Activate new engine
   IEngine* newEngine = getOrCreateEngine(newInstanceId.c_str());
@@ -472,7 +484,13 @@ bool RotationManager::loop() {
         // Hold the cover until the new engine actually produces a frame, so the reveal never lands
         // on a blank panel (a GIF still reading its file, a weather screen yet to repaint). Bounded,
         // so a slot that never draws cannot freeze the rotation.
-        if (m_awaitingFirstFrame && shouldFlip) m_awaitingFirstFrame = false;
+        if (m_awaitingFirstFrame && shouldFlip) {
+            m_awaitingFirstFrame = false;
+            g_slotTiming.firstFrameMs = (uint16_t)min<uint32_t>(millis() - m_slotSwitchMs, 65535);
+        }
+        if (m_awaitingFirstFrame) {
+            g_slotTiming.heldMs = (uint16_t)min<uint32_t>(millis() - m_slotSwitchMs, 65535);
+        }
         bool overdue = (millis() - m_slotFxStartedMs) > (uint32_t)(m_slotFxMs + 2500);
         m_slotFx.setHold(m_awaitingFirstFrame && !overdue);
         m_slotFx.render(m_ctx->getMatrix(), nullptr);

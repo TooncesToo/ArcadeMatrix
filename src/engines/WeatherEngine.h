@@ -47,6 +47,10 @@ public:
     void forceUpdate() { lastFetchTime = 0; }
 
     bool hasValidData() const { return validData; }
+    /// State of the last fetch, for /api/stats: whether data is in hand, how many days, how long
+    /// ago the last attempt was, and what stopped it.
+    struct FetchState { bool valid; uint8_t days; uint32_t lastAttemptAgeS; char lastError[40]; };
+    static FetchState fetchState();
 
 private:
     MatrixPanel_I2S_DMA* matrix;
