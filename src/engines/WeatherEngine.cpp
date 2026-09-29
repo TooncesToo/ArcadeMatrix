@@ -11,22 +11,24 @@
 #include "../api/OpenWeatherMapProvider.h"
 
 WeatherEngine::WeatherEngine() : matrix(nullptr) {
-    validData = false;
-    lastFetchTime = 0;
-    numForecasts = 0;
     activeSlide = 0;
     lastSlideChange = 0;
 }
 
 WeatherEngine::~WeatherEngine() {
     if (m_fetchTask) {          // stop the fetch before the providers it uses are freed
-        TaskHandle_t t = m_fetchTask;
+        // Ask it to finish the round trip it is in and leave the loop itself. Deleting the task
+        // outright would strand its TLS socket and heap, and could cut it off mid-read of the
+        // providers deleted just below.
+        m_stopFetch.store(true, std::memory_order_release);
+        for (int i = 0; i < 500 && !m_fetchExited.load(std::memory_order_acquire); i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));   // up to 5 s, which covers an HTTPS timeout
+        }
+        if (!m_fetchExited.load(std::memory_order_acquire)) {
+            LOGW("WeatherEngine", "fetch task did not stop in time; deleting it");
+            vTaskDelete(m_fetchTask);
+        }
         m_fetchTask = nullptr;
-        vTaskDelete(t);
-    }
-    if (m_dataMutex) {
-        vSemaphoreDelete(m_dataMutex);
-        m_dataMutex = nullptr;
     }
     for (auto* provider : providers) {
         delete provider;
@@ -101,7 +103,7 @@ void WeatherEngine::onConfigChanged(const EngineConfig* engineConfig) {
         config_city = newCity;
         config_lang = newLang;
         config_units = newUnits;
-        validData = false;
+        m_validData.store(false, std::memory_order_release);
         forceUpdate(); // Force fetch immediately with new settings
     }
     config_offset_x = engineConfig->getInt("weather_offset_x", 0);
@@ -147,8 +149,6 @@ WeatherEngine::FetchState WeatherEngine::fetchState() {
 
 void WeatherEngine::startFetchTask() {
     if (m_fetchTask) return;
-    if (!m_dataMutex) m_dataMutex = xSemaphoreCreateMutex();
-    if (!m_dataMutex) return;
     // Core 0 keeps the render loop on Core 1 free; 8 KB covers a TLS handshake and JSON parse.
     if (xTaskCreatePinnedToCore(fetchTaskEntry, "weather_fetch", 8192, this, 1, &m_fetchTask, 0) != pdPASS) {
         m_fetchTask = nullptr;
@@ -158,10 +158,15 @@ void WeatherEngine::startFetchTask() {
 
 void WeatherEngine::fetchTaskEntry(void* arg) {
     auto* self = static_cast<WeatherEngine*>(arg);
-    for (;;) {
+    while (!self->m_stopFetch.load(std::memory_order_acquire)) {
         self->fetchOnce();
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        // Sleep in slices so a stop request is picked up promptly instead of after a full wait.
+        for (int i = 0; i < 50 && !self->m_stopFetch.load(std::memory_order_acquire); i++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
+    self->m_fetchExited.store(true, std::memory_order_release);
+    vTaskDelete(nullptr);
 }
 
 void WeatherEngine::fetchOnce() {
@@ -194,17 +199,19 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
     String sysLang = guard->system.lang.length() > 0 ? guard->system.lang : "fr";
     if (sysLang != config_lang) {
         config_lang = sysLang;
-        validData = false;
-        lastFetchTime = 0;
+        m_validData.store(false, std::memory_order_release);
+        lastFetchTime.store(0, std::memory_order_relaxed);
     }
 
     // Only update every 15 minutes on success, or retry every 30 seconds on failure.
-    uint32_t interval = validData ? 900000 : 30000;
-    if (lastFetchTime > 0 && millis() - lastFetchTime < interval) return;
+    uint32_t interval = m_validData.load(std::memory_order_acquire) ? 900000 : 30000;
+    const uint32_t lastFetch = lastFetchTime.load(std::memory_order_relaxed);
+    if (lastFetch > 0 && millis() - lastFetch < interval) return;
 
     // Set lastFetchTime immediately so we don't spam the API on failure
-    lastFetchTime = millis();
-    g_lastAttemptMs = lastFetchTime;
+    const uint32_t now = millis();
+    lastFetchTime.store(now, std::memory_order_relaxed);
+    g_lastAttemptMs = now;
     strlcpy(g_fetchState.lastError, "fetching", sizeof(g_fetchState.lastError));
 
     String reqLang = config_lang;
@@ -221,22 +228,18 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
     }
 
     if (fetched && freshCount > 0) {
-        if (m_dataMutex && xSemaphoreTake(m_dataMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-            for (int i = 0; i < freshCount && i < MAX_FORECAST_DAYS; i++) forecasts[i] = fresh[i];
-            numForecasts = freshCount;
-            xSemaphoreGive(m_dataMutex);
-        } else {
-            for (int i = 0; i < freshCount && i < MAX_FORECAST_DAYS; i++) forecasts[i] = fresh[i];
-            numForecasts = freshCount;
-        }
-        validData = true;
-        m_newData = true;
+        // Fill the buffer the render loop is not reading, then publish it with one release store.
+        const uint8_t back = m_activeBuf.load(std::memory_order_relaxed) ^ 1;
+        int n = 0;
+        for (int i = 0; i < freshCount && i < MAX_FORECAST_DAYS; i++) m_forecastBuf[back][n++] = fresh[i];
+        m_forecastCount[back] = (uint8_t)n;
+        m_activeBuf.store(back, std::memory_order_release);
+        m_validData.store(true, std::memory_order_release);
+        m_newData.store(true, std::memory_order_release);
         g_fetchState.valid = true;
         g_fetchState.days = (uint8_t)freshCount;
         strlcpy(g_fetchState.lastError, "ok", sizeof(g_fetchState.lastError));
-        activeSlide = 0;
-        lastSlideChange = millis();
-        LOGI("WeatherEngine", "Success! Parsed %d forecast days in %s units.", numForecasts, units.c_str());
+        LOGI("WeatherEngine", "Success! Parsed %d forecast days in %s units.", n, units.c_str());
     } else {
         LOGE("WeatherEngine", "Error: Failed to parse weather data or 0 forecast entries parsed.");
     }
@@ -304,16 +307,23 @@ bool WeatherEngine::loop() {
     // Nothing here touches the network: the fetch task owns that, and a redraw is requested when
     // fresh data lands. Weather therefore draws from cache the moment the rotation arrives.
     startFetchTask();
-    if (m_newData) {
-        m_newData = false;
+    // One acquire load pairs with the fetch task's release store: everything written into the
+    // buffer before it was published is visible here, and the buffer cannot change under us.
+    const uint8_t buf = m_activeBuf.load(std::memory_order_acquire);
+    const int days = (int)m_forecastCount[buf];
+    const bool haveData = m_validData.load(std::memory_order_acquire) && days > 0;
+
+    if (m_newData.exchange(false, std::memory_order_acq_rel)) {
+        activeSlide = 0;                 // a fresh forecast starts again at today
+        lastSlideChange = millis();
         requestRedraw();
     }
-    if (!validData) requestRedraw();   // keep the notice alive until the first forecast lands
+    if (!haveData) requestRedraw();   // keep the notice alive until the first forecast lands
 
     // Cycle through Today/Tomorrow/Day3 every slideDurationMs. Simplified vs. the RPi's eased
     // horizontal-scroll transition (see WeatherEngine.h for rationale).
-    if (validData && numForecasts > 1 && millis() - lastSlideChange >= slideDurationMs) {
-        activeSlide = (activeSlide + 1) % numForecasts;
+    if (haveData && days > 1 && millis() - lastSlideChange >= slideDurationMs) {
+        activeSlide = (activeSlide + 1) % days;
         lastSlideChange = millis();
         requestRedraw();
     }
@@ -322,8 +332,8 @@ bool WeatherEngine::loop() {
     m_redrawFrames--;
 
     matrix->fillScreen(0);
-    if (validData && numForecasts > 0) {
-        drawForecast(forecasts[activeSlide % numForecasts]);
+    if (haveData) {
+        drawForecast(m_forecastBuf[buf][activeSlide % days]);
     } else {
         // No forecast yet: say so rather than leaving the slot black for its whole duration, which
         // is what it looked like after every restart until the first fetch landed.
