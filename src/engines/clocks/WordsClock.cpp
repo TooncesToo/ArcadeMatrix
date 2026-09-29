@@ -23,10 +23,7 @@ void WordsClockFace::draw(const TimeData& t) {
 // Wording and date order come from the shared localisation layer, so the face follows the
 // language the sign is set to rather than being English-only.
 void WordsClockFace::timeInWords(int h, int m, char* hw, size_t hn, char* mw, size_t mn) const {
-    String hourWords, minuteWords;
-    I18n::getSpokenTime(h, m, I18n::getLang(), hourWords, minuteWords);
-    snprintf(hw, hn, "%s", hourWords.c_str());
-    snprintf(mw, mn, "%s", minuteWords.c_str());
+    I18n::getSpokenTime(h, m, I18n::getLang(), hw, hn, mw, mn);
 }
 
 void WordsClockFace::drawCentred(const char* text, int centreY, const GFXfont* font, uint16_t color,
@@ -98,8 +95,8 @@ void WordsClockFace::update() {
             struct tm lt;
             localtime_r(&nowT, &lt);
             // Month before day in English, day before month in French and Spanish.
-            String line = I18n::getDateLine(lt.tm_wday, lt.tm_mon, lt.tm_mday, I18n::getLang());
-            snprintf(dateLine, sizeof(dateLine), "%s", line.c_str());
+            I18n::getDateLine(lt.tm_wday, lt.tm_mon, lt.tm_mday, I18n::getLang(),
+                              dateLine, sizeof(dateLine));
         }
         drawCentred(dateLine, dateY, &minute7pt7b, ACCENT, w);
     }

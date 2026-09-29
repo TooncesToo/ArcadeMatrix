@@ -4,7 +4,7 @@
 // Font from the Clockwise clockface cw-cf-0x06 (@jnthas), so the readout matches the original.
 #include <Adafruit_GFX.h>
 
-const uint8_t PKMN_RBYGSC4pt7bBitmaps[] PROGMEM = {
+static const uint8_t PKMN_RBYGSC4pt7bBitmaps[] PROGMEM = {
   0x00, 0x6F, 0xF6, 0x60, 0x60, 0xFF, 0x8F, 0xFF, 0xFF, 0xF9, 0xFF, 0x80,
   0xFF, 0x8F, 0xFF, 0xFF, 0xF9, 0xFF, 0x80, 0x7A, 0x5E, 0x8E, 0x23, 0x88,
   0xFF, 0x8F, 0xFF, 0xFF, 0xF9, 0xFF, 0x80, 0x30, 0xD1, 0xA1, 0x95, 0xB9,
@@ -49,7 +49,7 @@ const uint8_t PKMN_RBYGSC4pt7bBitmaps[] PROGMEM = {
   0xFF, 0xF9, 0xFF, 0x80, 0xFF, 0x8F, 0xFF, 0xFF, 0xF9, 0xFF, 0x80, 0xFF,
   0x8F, 0xFF, 0xFF, 0xF9, 0xFF, 0x80, 0x66, 0x60 };
 
-const GFXglyph PKMN_RBYGSC4pt7bGlyphs[] PROGMEM = {
+static const GFXglyph PKMN_RBYGSC4pt7bGlyphs[] PROGMEM = {
   {     0,   1,   1,   2,    0,    0 },   // 0x20 ' '
   {     1,   4,   7,   5,    0,   -6 },   // 0x21 '!'
   {     5,   7,   7,   1,    0,   -6 },   // 0x22 '"'
@@ -146,7 +146,7 @@ const GFXglyph PKMN_RBYGSC4pt7bGlyphs[] PROGMEM = {
   {   503,   7,   7,   1,    0,   -6 },   // 0x7D '}'
   {   510,   6,   2,   7,    0,   -7 } }; // 0x7E '~'
 
-const GFXfont PKMN_RBYGSC4pt7b PROGMEM = {
+static const GFXfont PKMN_RBYGSC4pt7b PROGMEM = {
   (uint8_t  *)PKMN_RBYGSC4pt7bBitmaps,
   (GFXglyph *)PKMN_RBYGSC4pt7bGlyphs,
   0x20, 0x7E, 9 };

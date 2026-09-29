@@ -13,7 +13,7 @@
   #endif
 
 
-const uint8_t Super_Mario_Bros__24pt7bBitmaps[] PROGMEM = {
+static const uint8_t Super_Mario_Bros__24pt7bBitmaps[] PROGMEM = {
   0x00, 0xFF, 0xEC, 0x30, 0xDE, 0xF6, 0x6C, 0xDB, 0xFB, 0x6F, 0xED, 0x9B,
   0x00, 0x10, 0xFB, 0x83, 0xE0, 0xFF, 0x84, 0x00, 0xC7, 0x9C, 0x71, 0xC7,
   0x1C, 0xF1, 0x80, 0x61, 0xA3, 0x5B, 0xED, 0x99, 0x9D, 0x80, 0xFC, 0x36,
@@ -62,7 +62,7 @@ const uint8_t Super_Mario_Bros__24pt7bBitmaps[] PROGMEM = {
   0x80, 0x36, 0x6C, 0x66, 0x30, 0xFF, 0xFC, 0xC6, 0x63, 0x66, 0xC0, 0x71,
   0x74, 0x70 };
 
-const GFXglyph Super_Mario_Bros__24pt7bGlyphs[] PROGMEM = {
+static const GFXglyph Super_Mario_Bros__24pt7bGlyphs[] PROGMEM = {
   {     0,   1,   1,   8,    0,    0 },   // 0x20 ' '
   {     1,   3,   7,   8,    2,   -6 },   // 0x21 '!'
   {     4,   5,   3,   8,    1,   -6 },   // 0x22 '"'
@@ -159,7 +159,7 @@ const GFXglyph Super_Mario_Bros__24pt7bGlyphs[] PROGMEM = {
   {   547,   4,   7,   8,    1,   -6 },   // 0x7D '}'
   {   551,   7,   3,   8,    0,   -4 } }; // 0x7E '~'
 
-const GFXfont Super_Mario_Bros__24pt7b PROGMEM = {
+static const GFXfont Super_Mario_Bros__24pt7b PROGMEM = {
   (uint8_t  *)Super_Mario_Bros__24pt7bBitmaps,
   (GFXglyph *)Super_Mario_Bros__24pt7bGlyphs,
   0x20, 0x7E, 9 };

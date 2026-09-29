@@ -36,9 +36,13 @@ public:
     /// Three-letter month label ("SEP", "SEPT", "SEP"), month0 is 0-11.
     static const char* getMonthLabel(int month0, Lang l);
     /// A date line in the order the language uses: "MON SEP 28", "LUN 28 SEPT", "LUN 28 SEP".
-    static String getDateLine(int weekday, int month0, int day, Lang l);
-    /// The time spoken as words, split into the hour line and the minute line beneath it.
-    static void getSpokenTime(int hours, int minutes, Lang l, String& hourWords, String& minuteWords);
+    /// Written into the caller's buffer so a clock face can build it without touching the heap.
+    static void getDateLine(int weekday, int month0, int day, Lang l, char* out, size_t outSize);
+    /// The time spoken as words, split into the hour line and the minute line beneath it. Both are
+    /// written into caller-owned buffers for the same reason.
+    static void getSpokenTime(int hours, int minutes, Lang l,
+                              char* hourWords, size_t hourSize,
+                              char* minuteWords, size_t minuteSize);
     
     // Noise / Decibel
     static const char* getNoiseLevelLabel(int level);

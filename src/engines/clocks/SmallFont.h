@@ -10,7 +10,7 @@
 #else
   #endif
 
-const uint8_t small4pt7bBitmaps[] PROGMEM = {
+static const uint8_t small4pt7bBitmaps[] PROGMEM = {
   0x00, 0xE4, 0xF8, 0x51, 0xF9, 0x42, 0x8F, 0xEA, 0x00, 0x21, 0xF8, 0x1C, 
   0x00, 0x1F, 0x08, 0x07, 0x01, 0x08, 0x5E, 0x20, 0x71, 0x00, 0x03, 0x88, 
   0xEF, 0x80, 0xE0, 0x4A, 0x90, 0x85, 0x60, 0xFF, 0x80, 0x5D, 0x00, 0xC0, 
@@ -43,7 +43,7 @@ const uint8_t small4pt7bBitmaps[] PROGMEM = {
   0xFC, 0xC9, 0x35, 0x80, 0x00
 };
 
-const GFXglyph small4pt7bGlyphs[] PROGMEM = {
+static const GFXglyph small4pt7bGlyphs[] PROGMEM = {
   {     0,   1,   1,   3,    0,    0 }   // ' '
  ,{     1,   1,   6,   3,    1,   -5 }   // '!'
  ,{     2,   3,   2,   4,    1,   -6 }   // '"'
@@ -141,7 +141,7 @@ const GFXglyph small4pt7bGlyphs[] PROGMEM = {
  ,{   352,   1,   1,   4,    0,    0 }   // '~'
 };
 
-const GFXfont small4pt7b PROGMEM = {
+static const GFXfont small4pt7b PROGMEM = {
   (uint8_t  *)small4pt7bBitmaps,  
   (GFXglyph *)small4pt7bGlyphs, 0x20, 0x7e,   10 };
 

@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <gfxfont.h>
 
-const uint8_t minute7pt7bBitmaps[] PROGMEM = {
+static const uint8_t minute7pt7bBitmaps[] PROGMEM = {
   0x00, 0x49, 0x24, 0x85, 0x40, 0x55, 0xA0, 0x48, 0x93, 0xFA, 0x44, 0x9F, 
   0xD2, 0x24, 0x11, 0xE9, 0x64, 0x78, 0x51, 0x65, 0x95, 0xE1, 0x00, 0x60, 
   0x24, 0x89, 0x41, 0x90, 0x08, 0x02, 0x61, 0x24, 0x49, 0x21, 0x80, 0x71, 
@@ -57,7 +57,7 @@ const uint8_t minute7pt7bBitmaps[] PROGMEM = {
   0x52, 0x4A, 0x00, 0x55, 0x00
 };
 
-const GFXglyph minute7pt7bGlyphs[] PROGMEM = {
+static const GFXglyph minute7pt7bGlyphs[] PROGMEM = {
   {     0,   2,   1,   2,    0,    0 }   // ' '
  ,{     1,   3,   9,   4,    1,   -8 }   // '!'
  ,{     5,   4,   3,   5,    1,   -8 }   // '"'
@@ -155,7 +155,7 @@ const GFXglyph minute7pt7bGlyphs[] PROGMEM = {
  ,{   555,   3,   3,   4,    1,   -7 }   // '~'
 };
 
-const GFXfont minute7pt7b PROGMEM = {
+static const GFXfont minute7pt7b PROGMEM = {
   (uint8_t  *)minute7pt7bBitmaps,   
   (GFXglyph *)minute7pt7bGlyphs, 0x20, 0x7e, 12};
 

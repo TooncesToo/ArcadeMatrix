@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <gfxfont.h>
 
-const uint8_t hour8pt7bBitmaps[] PROGMEM = {
+static const uint8_t hour8pt7bBitmaps[] PROGMEM = {
   0x00, 0xFF, 0xFF, 0xF0, 0xF0, 0xE7, 0xE7, 0xE7, 0x63, 0x42, 0x84, 0x03, 
   0x0C, 0xC3, 0x3C, 0xFF, 0xFF, 0x3C, 0xC3, 0x30, 0xCF, 0x3F, 0xFF, 0xCF, 
   0x30, 0xCC, 0x30, 0x00, 0x0C, 0x0F, 0xC7, 0xFB, 0xB7, 0xCC, 0xFB, 0x07, 
@@ -105,7 +105,7 @@ const uint8_t hour8pt7bBitmaps[] PROGMEM = {
   0x8E, 0x00, 0x71, 0x73, 0x9E, 0x8C
 };
 
-const GFXglyph hour8pt7bGlyphs[] PROGMEM = {
+static const GFXglyph hour8pt7bGlyphs[] PROGMEM = {
   {     0,   2,   1,   4,    1,    0 }   // ' '
  ,{     1,   2,  14,   3,    0,  -13 }   // '!'
  ,{     5,   8,   6,   9,    0,  -13 }   // '"'
@@ -203,7 +203,7 @@ const GFXglyph hour8pt7bGlyphs[] PROGMEM = {
  ,{  1130,   8,   4,   9,    0,   -7 }   // '~'
 };
 
-const GFXfont hour8pt7b PROGMEM = {
+static const GFXfont hour8pt7b PROGMEM = {
   (uint8_t  *)hour8pt7bBitmaps,    
   (GFXglyph *)hour8pt7bGlyphs, 0x20, 0x7e,     15 };
 
