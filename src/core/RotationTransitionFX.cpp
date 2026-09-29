@@ -112,9 +112,13 @@ bool RotationTransitionFX::render(Adafruit_GFX* display, void (*onApexReached)(u
     if (!_active || !display) return false;
 
     uint32_t now = millis();
-    // While held, keep the clock at the midpoint so the panel stays covered.
+    // While held, keep the clock at the midpoint so the panel stays covered. A covered panel is
+    // nearly black, so the wait needs something moving on it or it reads as a longer blank than
+    // the one the transition was added to hide.
+    bool drawWaitPulse = false;
     if (_holding && (now - _startTime) >= _durationMs / 2) {
         _startTime = now - _durationMs / 2;
+        drawWaitPulse = true;
     }
     uint32_t elapsed = now - _startTime;
 
@@ -140,6 +144,23 @@ bool RotationTransitionFX::render(Adafruit_GFX* display, void (*onApexReached)(u
 
     int16_t w = display->width();
     int16_t h = display->height();
+
+    if (drawWaitPulse) {
+        // A band sweeping the covered panel: the sign looks busy rather than switched off.
+        display->fillScreen(0x0000);
+        const uint16_t glowCol = getRandomArcadeColor();
+        int16_t bandW = (w >= 128) ? 24 : 12;
+        int16_t span = w + bandW * 2;
+        int16_t head = (int16_t)(((now / 4) % (uint32_t)span) - bandW);
+        for (int16_t i = 0; i < bandW; i++) {
+            int16_t x = head + i;
+            if (x < 0 || x >= w) continue;
+            uint8_t fade = (uint8_t)(255 - (i * 255 / bandW));
+            uint16_t col = (fade > 160) ? glowCol : ((fade > 80) ? 0x4208 : 0x2104);
+            display->drawFastVLine(x, h / 2 - h / 8, h / 4, col);
+        }
+        return true;
+    }
 
     switch (_activeEffect) {
         case RotationEffect::WIPE:     renderWipe(display, progress, w, h); return true;
