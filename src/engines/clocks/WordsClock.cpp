@@ -14,6 +14,7 @@ constexpr uint16_t ACCENT = 0x2589;   // the muted blue the original uses for th
 WordsClockFace::WordsClockFace(MatrixPanel_I2S_DMA* display, const EngineConfig* config)
     : ClockFace(display, config) {
     storedTime = { 0, 0, 0 };
+    glow = ClockFaceFont::resolveGlow(config);
 }
 
 void WordsClockFace::draw(const TimeData& t) {
@@ -34,7 +35,7 @@ void WordsClockFace::drawCentred(const char* text, int centreY, const GFXfont* f
     int16_t bx, by;
     uint16_t bw, bh;
     matrix->getTextBounds(text, 0, 0, &bx, &by, &bw, &bh);
-    ClockFaceFont::print(*matrix, engineConfig, (panelW - (int)bw) / 2 - bx,
+    ClockFaceFont::print(*matrix, glow, (panelW - (int)bw) / 2 - bx,
                          centreY - (int)bh / 2 - by, text, color, false);
     matrix->setFont(nullptr);
 }

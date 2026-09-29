@@ -14,6 +14,8 @@
  * Wording follows the original: "noon", "midnight", "o'clock", "a half", and "oh five" for the
  * single minutes.
  */
+#include "ClockFaceFont.h"
+
 class WordsClockFace : public ClockFace {
 public:
     WordsClockFace(MatrixPanel_I2S_DMA* display, const EngineConfig* config = nullptr);
@@ -25,6 +27,7 @@ public:
     void onActivated() override { m_dirty = 2; m_hasFrame = true; }
 
 private:
+    ClockFaceFont::Glow glow;   ///< resolved once at build time, never on the draw path
     TimeData storedTime;
     int lastMinute = -1;
     uint8_t m_dirty = 2;
