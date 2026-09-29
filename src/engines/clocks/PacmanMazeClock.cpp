@@ -82,7 +82,10 @@ void PacmanMazeClock::present(int panelW, int panelH) {
 void PacmanMazeClock::presentZoomed(int panelW, int panelH) {
     if (!m_canvas || !matrix || !m_face) return;
     const uint16_t* src = m_canvas->getBuffer();
-    const int z = m_zoom;
+    // Pick the zoom that fills the panel from a 64 px scene, so no part of the panel is left
+    // showing whatever was on it before.
+    int z = m_zoom;
+    while (z < 8 && SCENE * z < panelW) z++;
     const int viewW = (panelW + z - 1) / z;      // scene pixels visible across
     const int viewH = (panelH + z - 1) / z;
 
@@ -111,6 +114,11 @@ void PacmanMazeClock::presentZoomed(int panelW, int panelH) {
             if (!m_fullBlit && !moved && shadowRow && shadowRow[sx] == c) continue;
             if (shadowRow) shadowRow[sx] = c;
             matrix->fillRect(vx * z, vy * z, z, z, c);
+        }
+        // Anything past the edge of the scene is cleared rather than left as it was.
+        if (m_fullBlit || moved) {
+            int painted = min(panelW, ((SCENE - m_camX) * z));
+            if (painted < panelW) matrix->fillRect(painted, vy * z, panelW - painted, z, 0x0000);
         }
     }
     m_fullBlit = false;
