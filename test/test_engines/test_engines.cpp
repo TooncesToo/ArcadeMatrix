@@ -124,6 +124,40 @@ void test_glow_modes_resolve_colours() {
     TEST_ASSERT_TRUE((dim & 0x1F) < 0x1F);
 }
 
+
+/**
+ * @brief The time spoken as words, in each language the sign offers.
+ */
+void test_spoken_time_reads_as_words() {
+    String h, m;
+    I18n::getSpokenTime(12, 0, Lang::EN, h, m);
+    TEST_ASSERT_EQUAL_STRING("noon", h.c_str());
+    I18n::getSpokenTime(0, 0, Lang::EN, h, m);
+    TEST_ASSERT_EQUAL_STRING("midnight", h.c_str());
+    I18n::getSpokenTime(8, 5, Lang::EN, h, m);
+    TEST_ASSERT_EQUAL_STRING("eight", h.c_str());
+    TEST_ASSERT_EQUAL_STRING("oh five", m.c_str());
+    I18n::getSpokenTime(8, 30, Lang::EN, h, m);
+    TEST_ASSERT_EQUAL_STRING("a half", m.c_str());
+
+    // Each language gets its own phrasing rather than a word-for-word translation.
+    I18n::getSpokenTime(8, 30, Lang::FR, h, m);
+    TEST_ASSERT_EQUAL_STRING("huit", h.c_str());
+    TEST_ASSERT_EQUAL_STRING("heures et demie", m.c_str());
+    I18n::getSpokenTime(8, 30, Lang::ES, h, m);
+    TEST_ASSERT_EQUAL_STRING("ocho", h.c_str());
+    TEST_ASSERT_EQUAL_STRING("y media", m.c_str());
+}
+
+/**
+ * @brief Date order: month before day in English, day before month elsewhere.
+ */
+void test_date_line_follows_the_language() {
+    TEST_ASSERT_EQUAL_STRING("MON SEP 28", I18n::getDateLine(1, 8, 28, Lang::EN).c_str());
+    TEST_ASSERT_EQUAL_STRING("LUN 28 SEPT", I18n::getDateLine(1, 8, 28, Lang::FR).c_str());
+    TEST_ASSERT_EQUAL_STRING("LUN 28 SEP", I18n::getDateLine(1, 8, 28, Lang::ES).c_str());
+}
+
 void setup() {
     Serial.begin(115200);
     delay(100);
@@ -132,6 +166,8 @@ void setup() {
     RUN_TEST(test_visualizer_mode_parsing);
     RUN_TEST(test_message_scroll_math);
     RUN_TEST(test_glow_modes_resolve_colours);
+    RUN_TEST(test_spoken_time_reads_as_words);
+    RUN_TEST(test_date_line_follows_the_language);
     UNITY_END();
 }
 

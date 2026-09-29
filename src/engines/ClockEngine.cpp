@@ -8,6 +8,11 @@
 #include "clocks/WordClock.h"
 #include "clocks/BinaryClock.h"
 #include "clocks/PacmanClock.h"
+#include "clocks/MarioClock.h"
+#include "clocks/CastleClock.h"
+#include "clocks/PokedexClock.h"
+#include "clocks/WorldMapClock.h"
+#include "clocks/WordsClock.h"
 #include "clocks/VersusClock.h"
 #include "clocks/SlotMachineClock.h"
 #include "clocks/MatrixRainClock.h"
@@ -58,6 +63,18 @@ void ClockEngine::setTheme(PublisherTheme theme, bool forceReload, const EngineC
         activeFace = new MatrixRainClock(matrixDisplay, config);
     } else if (theme == 28) {
         activeFace = new SlotMachineClock(matrixDisplay, config);
+    } else if (theme == 30) {
+        activeFace = new MarioClock(matrixDisplay, config);
+    } else if (theme == 31) {
+        activeFace = new CastleClock(matrixDisplay, config);
+    } else if (theme == 32) {
+        activeFace = new PokedexClock(matrixDisplay, config);
+    } else if (theme == 33) {
+        activeFace = new WorldMapClock(matrixDisplay, config);
+    } else if (theme == 37) {
+        activeFace = new WordsClockFace(matrixDisplay, config);
+    } else if (theme == 34) {
+        activeFace = new PacmanClock(matrixDisplay, config, true);   // Ms Pac-Man
     } else {
         ArcadeClock* arcade = new ArcadeClock(matrixDisplay, config);
         arcade->setTheme(theme);
@@ -114,7 +131,16 @@ EngineError ClockEngine::initialize(EngineContext* context, const EngineConfig* 
     return EngineError::OK;
 }
 
+bool ClockEngine::needsClear() const {
+    return activeFace ? activeFace->wantsClear() : true;
+}
+
+bool ClockEngine::hasNewFrame() const {
+    return activeFace ? activeFace->hasNewFrame() : true;
+}
+
 void ClockEngine::activate() {
+    if (activeFace) activeFace->onActivated();
     // Clock is active, maybe reset time fetcher
 }
 
