@@ -5,6 +5,7 @@
 
 PacmanClock::PacmanClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config) {
     faceFont.load(config);
+    glow = ClockFaceFont::resolveGlow(config);
     storedTime = {0, 0, 0};
     strcpy(oldTimeStr, "");
     strcpy(newTimeStr, "");
@@ -124,7 +125,7 @@ void PacmanClock::printTime(const char* str, int centreX, int centreY, int scale
             uint16_t col = (str[i] == ':') ? colonColor : digitColor;
             if (col != 0) {
                 uint16_t glowColor = 0, coreColor = col;
-                if (ClockFaceFont::glowFor(engineConfig, col, glowColor, coreColor)) {   // as the Matrix face draws it
+                if (ClockFaceFont::glowFor(glow, col, glowColor, coreColor)) {   // as the Matrix face draws it
                     matrix->setTextColor(glowColor);
                     matrix->setCursor(charLeft - 1, cursorY); matrix->write((uint8_t)str[i]);
                     matrix->setCursor(charLeft + 1, cursorY); matrix->write((uint8_t)str[i]);

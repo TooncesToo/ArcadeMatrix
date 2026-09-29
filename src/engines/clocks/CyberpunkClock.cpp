@@ -16,7 +16,7 @@ static Drop drops[MAX_DROPS];
 static bool dropsInit = false;
 static int activeDropCount = 0;
 
-CyberpunkClock::CyberpunkClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config), lineY(0), lastFrameTime(0) { faceFont.load(config);}
+CyberpunkClock::CyberpunkClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config), lineY(0), lastFrameTime(0) { faceFont.load(config); glow = ClockFaceFont::resolveGlow(config); }
 
 void CyberpunkClock::draw(const TimeData& t) {
     storedTime = t;
@@ -51,15 +51,15 @@ void CyberpunkClock::drawTime() {
             int yM = (h / 2) - (bh / 2) + offY - by;
             int yS = (5 * h / 6) - (bh / 2) + offY - by;
 
-            ClockFaceFont::print(*matrix, engineConfig, tx, yH, hStr, green);
-            ClockFaceFont::print(*matrix, engineConfig, tx, yM, mStr, green);
-            ClockFaceFont::print(*matrix, engineConfig, tx, yS, sStr, matrix->color565(0, 140, 60));
+            ClockFaceFont::print(*matrix, glow, tx, yH, hStr, green);
+            ClockFaceFont::print(*matrix, glow, tx, yM, mStr, green);
+            ClockFaceFont::print(*matrix, glow, tx, yS, sStr, matrix->color565(0, 140, 60));
         } else {
             int yH = (h / 4) - (bh / 2) + offY + 2 - by;
             int yM = (3 * h / 4) - (bh / 2) + offY - 2 - by;
 
-            ClockFaceFont::print(*matrix, engineConfig, tx, yH, hStr, green);
-            ClockFaceFont::print(*matrix, engineConfig, tx, yM, mStr, green);
+            ClockFaceFont::print(*matrix, glow, tx, yH, hStr, green);
+            ClockFaceFont::print(*matrix, glow, tx, yM, mStr, green);
         }
     } else {
         char timeStr[12];

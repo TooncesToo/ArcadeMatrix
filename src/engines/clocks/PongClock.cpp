@@ -3,7 +3,7 @@
 #include "../../core/ConfigLoader.h"
 #include <stdlib.h>
 
-PongClock::PongClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config), lastMinute(-1), lastHour(-1), forceMissLeft(false), forceMissRight(false), lastFrameTime(0) { faceFont.load(config);
+PongClock::PongClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config), lastMinute(-1), lastHour(-1), forceMissLeft(false), forceMissRight(false), lastFrameTime(0) { faceFont.load(config); glow = ClockFaceFont::resolveGlow(config);
     storedTime = {0, 0, 0};
     ball_size = max(2, (int)(matrix->height() / 16));
     pad_w = max(2, (int)(matrix->width() / 32));
@@ -51,8 +51,8 @@ void PongClock::drawScores() {
     int yOffset = max(4, (matrix->height() / 8)); // Scaled margin
     
     uint16_t scoreColor = matrix->color565(255, 255, 255);
-    ClockFaceFont::print(*matrix, engineConfig, center - bw - 8 - bx, yOffset - by, scoreLeft, scoreColor);
-    ClockFaceFont::print(*matrix, engineConfig, center + 8 - bx, yOffset - by, scoreRight, scoreColor);
+    ClockFaceFont::print(*matrix, glow, center - bw - 8 - bx, yOffset - by, scoreLeft, scoreColor);
+    ClockFaceFont::print(*matrix, glow, center + 8 - bx, yOffset - by, scoreRight, scoreColor);
 }
 
 void PongClock::update() {

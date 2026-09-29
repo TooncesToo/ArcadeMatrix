@@ -83,13 +83,35 @@ void test_message_scroll_math(void) {
 void test_glow_modes_resolve_colours() {
     // With no configuration there is no glow, and the centre keeps the colour it was given.
     uint16_t halo = 0, core = 0;
-    TEST_ASSERT_FALSE(ClockFaceFont::glowFor(nullptr, 0xF800, halo, core));
+    ClockFaceFont::Glow off = ClockFaceFont::resolveGlow(nullptr);
+    TEST_ASSERT_EQUAL_UINT8(0, off.mode);
+    TEST_ASSERT_FALSE(ClockFaceFont::glowFor(off, 0xF800, halo, core));
     TEST_ASSERT_EQUAL_UINT16(0xF800, core);
+
+    // Neon takes the outline from the text colour; a custom glow takes the one it was given, and
+    // falls back to the text colour when the setting is not a colour at all.
+    ClockFaceFont::Glow neon; neon.mode = 1;
+    TEST_ASSERT_TRUE(ClockFaceFont::glowFor(neon, 0x001F, halo, core));
+    TEST_ASSERT_EQUAL_UINT16(0x001F, halo);
+
+    ClockFaceFont::Glow custom; custom.mode = 2; custom.color = 0xF81F; custom.hasColor = true;
+    TEST_ASSERT_TRUE(ClockFaceFont::glowFor(custom, 0x001F, halo, core));
+    TEST_ASSERT_EQUAL_UINT16(0xF81F, halo);
+    TEST_ASSERT_EQUAL_UINT16(0x001F, core);      // the centre keeps its own colour
+
+    ClockFaceFont::Glow unset; unset.mode = 2;   // "custom" with nothing parseable behind it
+    TEST_ASSERT_TRUE(ClockFaceFont::glowFor(unset, 0x07E0, halo, core));
+    TEST_ASSERT_EQUAL_UINT16(0x07E0, halo);
 
     // A hex colour parses; anything else falls back rather than drawing black.
     TEST_ASSERT_EQUAL_UINT16(0xF800, ClockFaceFont::parseHex("#FF0000", 0x0000));
     TEST_ASSERT_EQUAL_UINT16(0x07E0, ClockFaceFont::parseHex("not a colour", 0x07E0));
     TEST_ASSERT_EQUAL_UINT16(0x001F, ClockFaceFont::parseHex("0000FF", 0x0000));
+    // Black is a real colour, and is told apart from "not set".
+    uint16_t parsed = 0xFFFF;
+    TEST_ASSERT_TRUE(ClockFaceFont::tryParseHex("#000000", parsed));
+    TEST_ASSERT_EQUAL_UINT16(0x0000, parsed);
+    TEST_ASSERT_FALSE(ClockFaceFont::tryParseHex("nope", parsed));
 
     // Neon pales the centre towards white, which is what makes the outline read as an outline.
     uint16_t paled = ClockFaceFont::paled(0x001F);

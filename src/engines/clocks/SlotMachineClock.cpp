@@ -3,7 +3,7 @@
 #include "../../core/ConfigLoader.h"
 #include <string.h>
 
-SlotMachineClock::SlotMachineClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config) { faceFont.load(config);
+SlotMachineClock::SlotMachineClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config) { faceFont.load(config); glow = ClockFaceFont::resolveGlow(config);
     storedTime = {0, 0, 0};
     lastMinute = -1;
     animFrame = 0;
@@ -131,8 +131,8 @@ void SlotMachineClock::update() {
             matrix->fillRect(0, tyM + bh + 2, w, h - (tyM + bh + 2), 0);
         } else {
             // Outline & Text
-            ClockFaceFont::print(*matrix, engineConfig, cx, cyH, hStr, color1);
-            ClockFaceFont::print(*matrix, engineConfig, cx, cyM, mStr, color1);
+            ClockFaceFont::print(*matrix, glow, cx, cyH, hStr, color1);
+            ClockFaceFont::print(*matrix, glow, cx, cyM, mStr, color1);
         }
 
         // Blinking LEDs
@@ -171,7 +171,7 @@ void SlotMachineClock::update() {
             matrix->fillRect(0, 0, w, ty - 2, 0);
             matrix->fillRect(0, ty + bh + 2, w, h - (ty + bh + 2), 0);
         } else {
-            ClockFaceFont::print(*matrix, engineConfig, cx, cy, currentTime, color1);
+            ClockFaceFont::print(*matrix, glow, cx, cy, currentTime, color1);
         }
         
         // Decorative blinking LED dots on both sides

@@ -53,20 +53,28 @@ public:
         return (uint16_t)(r << 11) | (uint16_t)(g << 5) | b;
     }
 
-    /// "#rrggbb" (or "rrggbb") to RGB565; returns `fallback` when the string is not a colour.
-    static uint16_t parseHex(const char* hex, uint16_t fallback) {
-        if (!hex) return fallback;
+    /// "#rrggbb" (or "rrggbb") to RGB565. False when the string is not a colour at all, which is
+    /// what lets a caller tell "black" apart from "not set".
+    static bool tryParseHex(const char* hex, uint16_t& out) {
+        if (!hex) return false;
         while (*hex == ' ') hex++;
         if (*hex == '#') hex++;
         int n = 0; while (hex[n] && n < 7) n++;
-        if (n < 6) return fallback;
+        if (n < 6) return false;
         char buf[7]; for (int i = 0; i < 6; i++) buf[i] = hex[i];
         buf[6] = '\0';
         char* end = nullptr;
         long v = strtol(buf, &end, 16);
-        if (end != buf + 6) return fallback;
+        if (end != buf + 6) return false;
         uint8_t r = (uint8_t)((v >> 16) & 0xFF), g = (uint8_t)((v >> 8) & 0xFF), b = (uint8_t)(v & 0xFF);
-        return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+        out = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+        return true;
+    }
+
+    /// "#rrggbb" (or "rrggbb") to RGB565; returns `fallback` when the string is not a colour.
+    static uint16_t parseHex(const char* hex, uint16_t fallback) {
+        uint16_t v = 0;
+        return tryParseHex(hex, v) ? v : fallback;
     }
 
     /// A colour blended most of the way to white, the pale centre the Matrix face draws.
@@ -87,14 +95,36 @@ public:
      *   2 (custom) : the outline is `clock_glow_color` and the centre keeps its own colour.
      * `core` comes back as the colour the centre pass should use. Returns false for no halo.
      */
-    static bool glowFor(const EngineConfig* cfg, uint16_t textColor, uint16_t& halo, uint16_t& core) {
+    struct Glow {
+        uint8_t mode = 0;        ///< 0 none, 1 neon, 2 a colour of its own
+        uint16_t color = 0;      ///< the outline colour when `mode` is 2 and `hasColor` is set
+        bool hasColor = false;
+    };
+
+    /**
+     * Read the glow settings once. Every lookup on an EngineConfig builds a String for the key and
+     * another for the value, so a face that asked on each draw was allocating on the render core
+     * several times a frame. A face resolves this when it is built, which is also when a settings
+     * change rebuilds it, and draws from the result.
+     */
+    static Glow resolveGlow(const EngineConfig* cfg) {
+        Glow g;
+        if (!cfg) return g;
+        const int mode = cfg->getInt("clock_glow", 0);
+        if (mode <= 0) return g;
+        g.mode = (uint8_t)mode;
+        if (mode >= 2) {
+            String hex = cfg->getString("clock_glow_color", "");
+            g.hasColor = tryParseHex(hex.c_str(), g.color);
+        }
+        return g;
+    }
+
+    static bool glowFor(const Glow& g, uint16_t textColor, uint16_t& halo, uint16_t& core) {
         core = textColor;
-        if (!cfg) return false;
-        int mode = cfg->getInt("clock_glow", 0);
-        if (mode <= 0) return false;
-        if (mode == 1) { halo = textColor; core = paled(textColor); return true; }
-        String hex = cfg->getString("clock_glow_color", "");
-        halo = parseHex(hex.c_str(), textColor);
+        if (g.mode == 0) return false;
+        if (g.mode == 1) { halo = textColor; core = paled(textColor); return true; }
+        halo = g.hasColor ? g.color : textColor;
         return true;
     }
 
@@ -107,10 +137,10 @@ public:
      *        setting existed, so turning the glow off leaves them exactly as they were. False for a
      *        face whose text was printed once, where a ring would thicken the glyphs.
      */
-    static void print(Adafruit_GFX& gfx, const EngineConfig* cfg, int x, int y, const char* str,
+    static void print(Adafruit_GFX& gfx, const Glow& g, int x, int y, const char* str,
                       uint16_t color, bool ringWhenOff = true) {
         uint16_t halo = 0, core = color;
-        if (!glowFor(cfg, color, halo, core)) {
+        if (!glowFor(g, color, halo, core)) {
             if (!ringWhenOff) {          // print once, as this face always did
                 gfx.setTextColor(core);
                 gfx.setCursor(x, y);
