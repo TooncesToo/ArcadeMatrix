@@ -48,6 +48,8 @@ This block configures the DMA parameters for the `ESP32-HUB75-MatrixPanel-I2S-DM
 | `auto_rotate` | `bool` | Enable automatic display orientation via onboard Gyroscope/IMU (`true` default). |
 | `rotation_transition` | `String` | Visual transition effect (`vortex`, `glitch`, `slide`, `zoom`, `matrix`, `random`, `none`). |
 | `rotation_transition_duration_ms` | `int` | Transition effect duration in milliseconds (default `400`). |
+| `slot_transition` | `String` | Effect played when the rotation moves to the next slot (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `vortex`, `glitch`, `slide`, `zoom`, `random`, `none`). Default `none`. |
+| `slot_transition_duration_ms` | `int` | Slot transition duration in milliseconds (`100`-`3000`, default `500`). |
 
 > Live daytime brightness is **not** stored in this block; it is controlled at runtime from the Web UI (Dashboard slider → `POST /api/system { "brightness_limit": 0-100 }`). Night brightness lives in the `system` block (§4).
 
@@ -247,6 +249,20 @@ Defines the display order, per-slot duration, and transverse overlay toggles.
 Only instances listed here are ever initialized, saving memory for unused features. The rotation is editable from the Web UI **Rotation** panel (`GET`/`POST /api/rotation`).
 
 > **Human-Readable Persistence**: When saved to disk (`config.json`), the file is always written formatted and indented (`to_string_pretty`) so it can be cleanly inspected and edited by hand without breaking.
+
+---
+
+### Clock instance options
+
+Beyond `clock_theme`, `clock_font`, `clock_size` and the colours, a clock instance takes:
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `clock_glow` | `enum` | Outline around the digits: `0` off, `1` neon (the chosen colour at full strength with a near-white centre, as the Matrix face draws it), `2` a colour of its own. Default `0`. |
+| `clock_glow_color` | `color` | Outline colour when `clock_glow` is `2` (default `#00FF41`). |
+
+Themes `30`-`37` are the faces adapted from the Clockwise clockfaces. Those named `(256x64)` are laid
+out for a wide panel and show a notice on smaller ones.
 
 ---
 
