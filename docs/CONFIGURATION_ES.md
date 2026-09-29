@@ -48,8 +48,6 @@ Este bloque configura los parámetros DMA para la biblioteca `ESP32-HUB75-Matrix
 | `auto_rotate` | `bool` | Habilitar rotación automática mediante giroscopio/IMU integrado (`true` por defecto). |
 | `rotation_transition` | `String` | Efecto visual de transición (`vortex`, `glitch`, `slide`, `zoom`, `matrix`, `random`, `none`). |
 | `rotation_transition_duration_ms` | `int` | Duración del efecto de transición en milisegundos (por defecto `400`). |
-| `slot_transition` | `String` | Efecto reproducido cuando la rotación pasa a la siguiente pantalla (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `vortex`, `glitch`, `slide`, `zoom`, `random`, `none`). Por defecto `none`. |
-| `slot_transition_duration_ms` | `int` | Duración de la transición entre pantallas, en milisegundos (`100`-`3000`, por defecto `500`). |
 
 > El brillo diurno en vivo **no** se almacena en este bloque; se controla en tiempo de ejecución desde la interfaz Web (deslizador del Dashboard → `POST /api/system { "brightness_limit": 0-100 }`). El brillo nocturno vive en el bloque `system` (§4).
 
@@ -260,9 +258,6 @@ Además de `clock_theme`, `clock_font`, `clock_size` y los colores, una instanci
 | :--- | :--- | :--- |
 | `clock_glow` | `enum` | Contorno alrededor de los dígitos: `0` ninguno, `1` neón (el color elegido a plena intensidad con un centro casi blanco, como lo dibuja la cara Matrix), `2` un color propio. Por defecto `0`. |
 | `clock_glow_color` | `color` | Color del contorno cuando `clock_glow` es `2` (por defecto `#00FF41`). |
-
-Los temas `30` a `37` son las caras adaptadas de los clockfaces de Clockwise. Las marcadas `(256x64)`
-están diseñadas para un panel ancho y muestran un aviso en los pequeños.
 
 ---
 

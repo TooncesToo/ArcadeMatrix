@@ -48,8 +48,6 @@ Ce bloc configure les paramètres DMA pour la bibliothèque `ESP32-HUB75-MatrixP
 | `auto_rotate` | `bool` | Active l'orientation automatique via le gyroscope/IMU embarqué (`true` par défaut). |
 | `rotation_transition` | `String` | Effet visuel de transition (`vortex`, `glitch`, `slide`, `zoom`, `matrix`, `random`, `none`). |
 | `rotation_transition_duration_ms` | `int` | Durée de l'effet de transition en millisecondes (défaut `400`). |
-| `slot_transition` | `String` | Effet joué lorsque la rotation passe à l'écran suivant (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `vortex`, `glitch`, `slide`, `zoom`, `random`, `none`). Par défaut `none`. |
-| `slot_transition_duration_ms` | `int` | Durée de la transition entre écrans, en millisecondes (`100`-`3000`, par défaut `500`). |
 
 > La luminosité de jour en direct **n'est pas** stockée dans ce bloc ; elle est contrôlée à l'exécution depuis la Web UI (curseur du Dashboard → `POST /api/system { "brightness_limit": 0-100 }`). La luminosité de nuit se trouve dans le bloc `system` (§4).
 
@@ -260,9 +258,6 @@ Outre `clock_theme`, `clock_font`, `clock_size` et les couleurs, une instance d'
 | :--- | :--- | :--- |
 | `clock_glow` | `enum` | Contour autour des chiffres : `0` aucun, `1` néon (la couleur choisie à pleine intensité avec un centre presque blanc, comme le fait la face Matrix), `2` une couleur dédiée. Par défaut `0`. |
 | `clock_glow_color` | `color` | Couleur du contour lorsque `clock_glow` vaut `2` (par défaut `#00FF41`). |
-
-Les thèmes `30` à `37` sont les faces adaptées des clockfaces Clockwise. Celles marquées `(256x64)`
-sont conçues pour un panneau large et affichent un avertissement sur les petits panneaux.
 
 ---
 
