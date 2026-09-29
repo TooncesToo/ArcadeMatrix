@@ -17,6 +17,20 @@ static const uint8_t PAC_FRAME_OPEN_ROWS = 13;
 static const uint8_t PAC_FRAME_OPEN_COLS = 13;
 static const uint16_t PAC_FRAME_OPEN[13] = { 0x01F0, 0x07F8, 0x0FF0, 0x0FE0, 0x1FC0, 0x1F80, 0x1F00, 0x1F80, 0x1FC0, 0x0FE0, 0x0FF0, 0x07F8, 0x01F0 };
 
+// Ms Pac-Man: the same 13x13 body with a bow, an eye and lips laid over it. Rows are masks over the
+// body, so the pieces line up whatever chomp frame is showing.
+static const uint8_t MS_BOW_ROWS = 4;
+static const uint8_t MS_BOW_COLS = 13;
+static const uint16_t MS_BOW[4] = { 0x0C18, 0x1E3C, 0x1E3C, 0x0C18 };   // two loops, top-left of the head
+
+static const uint8_t MS_EYE_ROWS = 2;
+static const uint8_t MS_EYE_COLS = 13;
+static const uint16_t MS_EYE[2] = { 0x0080, 0x0080 };
+
+static const uint8_t MS_LIPS_ROWS = 2;
+static const uint8_t MS_LIPS_COLS = 13;
+static const uint16_t MS_LIPS[2] = { 0x0038, 0x0010 };
+
 static const uint8_t GHOST_BODY_ROWS = 12;
 static const uint8_t GHOST_BODY_COLS = 14;
 static const uint16_t GHOST_BODY[12] = { 0x01E0, 0x07F8, 0x0FFC, 0x1FFE, 0x1FFE, 0x3FFF, 0x3FFF, 0x3FFF, 0x3FFF, 0x3FFF, 0x3FFF, 0x3FFF };

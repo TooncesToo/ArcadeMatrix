@@ -3,7 +3,8 @@
 #include "../../core/ConfigLoader.h"
 #include <math.h>
 
-PacmanClock::PacmanClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config) : ClockFace(display, config) {
+PacmanClock::PacmanClock(MatrixPanel_I2S_DMA* display, const EngineConfig* config, bool ms) : ClockFace(display, config) {
+    msVariant = ms;
     faceFont.load(config);
     storedTime = {0, 0, 0};
     strcpy(oldTimeStr, "");
@@ -175,6 +176,12 @@ void PacmanClock::drawPacman(int cx, int cy, int s, int frame, bool facingRight)
     // black square in the open mouth and around the round edges, hiding digits Pac-Man is not on.
     const uint16_t* rows = (frame == 0) ? PAC_FRAME_CLOSED : (frame == 1) ? PAC_FRAME_HALF : PAC_FRAME_OPEN;
     blit(rows, PAC_FRAME_CLOSED_ROWS, PAC_FRAME_CLOSED_COLS, left, top, s, matrix->color565(255, 255, 0), !facingRight);
+    if (msVariant) {
+        // Bow above the head, an eye, and lips at the mouth: the body underneath is unchanged.
+        blit(MS_BOW, MS_BOW_ROWS, MS_BOW_COLS, left, top - 2 * s, s, matrix->color565(255, 40, 80), !facingRight);
+        blit(MS_EYE, MS_EYE_ROWS, MS_EYE_COLS, left, top + 3 * s, s, matrix->color565(24, 24, 48), !facingRight);
+        blit(MS_LIPS, MS_LIPS_ROWS, MS_LIPS_COLS, left, top + 6 * s, s, matrix->color565(220, 40, 90), !facingRight);
+    }
 }
 
 // 14x14 ghost: 12-row body, 2-row skirt (two frames). Normal ghosts get white eyes with pupils looking

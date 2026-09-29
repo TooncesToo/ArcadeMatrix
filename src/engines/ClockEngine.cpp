@@ -70,6 +70,8 @@ void ClockEngine::setTheme(PublisherTheme theme, bool forceReload, const EngineC
         activeFace = new PokedexClock(matrixDisplay, config);
     } else if (theme == 33) {
         activeFace = new WorldMapClock(matrixDisplay, config);
+    } else if (theme == 34) {
+        activeFace = new PacmanClock(matrixDisplay, config, true);   // Ms Pac-Man
     } else {
         ArcadeClock* arcade = new ArcadeClock(matrixDisplay, config);
         arcade->setTheme(theme);
