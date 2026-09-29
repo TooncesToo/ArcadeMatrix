@@ -13,6 +13,7 @@
 #include "clocks/PokedexClock.h"
 #include "clocks/WorldMapClock.h"
 #include "clocks/PacmanMazeClock.h"
+#include "clocks/ArcadeMazeClock.h"
 #include "clocks/VersusClock.h"
 #include "clocks/SlotMachineClock.h"
 #include "clocks/MatrixRainClock.h"
@@ -71,6 +72,8 @@ void ClockEngine::setTheme(PublisherTheme theme, bool forceReload, const EngineC
         activeFace = new PokedexClock(matrixDisplay, config);
     } else if (theme == 33) {
         activeFace = new WorldMapClock(matrixDisplay, config);
+    } else if (theme == 36) {
+        activeFace = new ArcadeMazeClock(matrixDisplay, config);
     } else if (theme == 35) {
         activeFace = new PacmanMazeClock(matrixDisplay, config);
     } else if (theme == 34) {
