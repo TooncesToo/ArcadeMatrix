@@ -105,7 +105,7 @@ void WorldMapClock::update() {
     snprintf(buf, sizeof(buf), "%d:%02d", storedTime.hours, storedTime.minutes);
     matrix->setFont(&small4pt7b);
     matrix->setTextSize(1);
-    ClockFaceFont::print(*matrix, engineConfig, mapX(1, w, h), mapY(62, h), buf, 0xFFFF);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(1, w, h), mapY(62, h), buf, 0xFFFF, false);
     matrix->setFont(nullptr);
 }
 

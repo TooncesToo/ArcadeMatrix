@@ -39,9 +39,9 @@ void PokedexClock::drawFace(int w, int h) {
     matrix->setTextSize(1);
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", storedTime.hours);
-    ClockFaceFont::print(*matrix, engineConfig, mapX(35, w, h), mapY(22, h), buf, 0xFFFF);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(35, w, h), mapY(22, h), buf, 0xFFFF, false);
     snprintf(buf, sizeof(buf), "%02d", storedTime.minutes);
-    ClockFaceFont::print(*matrix, engineConfig, mapX(46, w, h), mapY(30, h), buf, 0xFFFF);
+    ClockFaceFont::print(*matrix, engineConfig, mapX(46, w, h), mapY(30, h), buf, 0xFFFF, false);
     matrix->setFont(nullptr);
 
     // Weekday marker: two rows of four, as in the original.

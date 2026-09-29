@@ -102,11 +102,23 @@ public:
      * Print `str` at (x, y) in `color`, adding the configured glow outline. Every animated face draws
      * its text through this, so one font at one size looks the same whichever face is showing.
      */
-    static void print(Adafruit_GFX& gfx, const EngineConfig* cfg, int x, int y, const char* str, uint16_t color) {
+    /**
+     * @param ringWhenOff true for the faces that drew a black ring of their own before the glow
+     *        setting existed, so turning the glow off leaves them exactly as they were. False for a
+     *        face whose text was printed once, where a ring would thicken the glyphs.
+     */
+    static void print(Adafruit_GFX& gfx, const EngineConfig* cfg, int x, int y, const char* str,
+                      uint16_t color, bool ringWhenOff = true) {
         uint16_t halo = 0, core = color;
-        // With no glow configured the ring is drawn in black, which is what the faces did on their
-        // own: invisible against the panel, but it keeps the digits legible over artwork.
-        if (!glowFor(cfg, color, halo, core)) halo = 0;
+        if (!glowFor(cfg, color, halo, core)) {
+            if (!ringWhenOff) {          // print once, as this face always did
+                gfx.setTextColor(core);
+                gfx.setCursor(x, y);
+                gfx.print(str);
+                return;
+            }
+            halo = 0;
+        }
         gfx.setTextColor(halo);
         gfx.setCursor(x - 1, y); gfx.print(str);
         gfx.setCursor(x + 1, y); gfx.print(str);

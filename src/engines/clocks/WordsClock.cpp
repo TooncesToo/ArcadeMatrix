@@ -38,7 +38,7 @@ void WordsClockFace::drawCentred(const char* text, int centreY, const GFXfont* f
     uint16_t bw, bh;
     matrix->getTextBounds(text, 0, 0, &bx, &by, &bw, &bh);
     ClockFaceFont::print(*matrix, engineConfig, (panelW - (int)bw) / 2 - bx,
-                         centreY - (int)bh / 2 - by, text, color);
+                         centreY - (int)bh / 2 - by, text, color, false);
     matrix->setFont(nullptr);
 }
 

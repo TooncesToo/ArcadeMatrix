@@ -47,7 +47,7 @@ void MarioClock::drawBlockAt(int x, int y, const char* text) {
     blitSprite(BLOCK, BLOCK_W, BLOCK_H, x, y, false);
     matrix->setFont(&Super_Mario_Bros__24pt7b);
     matrix->setTextSize(1);
-    ClockFaceFont::print(*matrix, engineConfig, x + (strlen(text) == 1 ? 6 : 2), y + 12, text, 0x0000);
+    ClockFaceFont::print(*matrix, engineConfig, x + (strlen(text) == 1 ? 6 : 2), y + 12, text, 0x0000, false);
     matrix->setFont(nullptr);
 }
 
