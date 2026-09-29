@@ -111,8 +111,9 @@ void WordsClockFace::update() {
         if (nowT > 1600000000) {
             struct tm lt;
             localtime_r(&nowT, &lt);
-            snprintf(dateLine, sizeof(dateLine), "%s %d %s", MONTHS[lt.tm_mon % 12], lt.tm_mday,
-                     WEEKDAYS[lt.tm_wday % 7]);
+            // US order: weekday, then month and day, rather than the source face's day-first line.
+            snprintf(dateLine, sizeof(dateLine), "%s %s %d", WEEKDAYS[lt.tm_wday % 7],
+                     MONTHS[lt.tm_mon % 12], lt.tm_mday);
         }
         drawCentred(dateLine, dateY, &minute7pt7b, ACCENT, w);
     }
