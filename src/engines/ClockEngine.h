@@ -28,6 +28,8 @@ public:
     virtual bool wantsClear() const { return true; }
     /// False when nothing has changed since the last frame, so the rotation can skip the flip.
     virtual bool hasNewFrame() const { return true; }
+    /// The face is about to be shown: a face that only repaints on change has to paint now.
+    virtual void onActivated() {}
 
 protected:
     MatrixPanel_I2S_DMA* matrix;

@@ -27,6 +27,7 @@ public:
     /// The face paints every pixel of the scene itself, and only when something moved.
     bool wantsClear() const override { return false; }
     bool hasNewFrame() const override { return m_hasFrame; }
+    void onActivated() override { m_dirty = 2; m_hasFrame = true; }
 
 private:
     enum class Phase : uint8_t { Waiting, RunIn, Jump, RunOut };

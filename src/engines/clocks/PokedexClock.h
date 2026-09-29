@@ -19,6 +19,7 @@ public:
     void onDisplayGeometryChanged(const DisplayGeometry& geometry) override;
     bool wantsClear() const override { return false; }
     bool hasNewFrame() const override { return m_hasFrame; }
+    void onActivated() override { m_dirty = 2; m_hasFrame = true; }
 
 private:
     TimeData storedTime;

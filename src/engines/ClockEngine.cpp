@@ -135,6 +135,7 @@ bool ClockEngine::hasNewFrame() const {
 }
 
 void ClockEngine::activate() {
+    if (activeFace) activeFace->onActivated();
     // Clock is active, maybe reset time fetcher
 }
 
