@@ -295,6 +295,16 @@ void PacmanClock::update() {
     float pauseLen = speed * 0.4f;                                  // beat between the legs
     float path[3] = { legOut, legBack, legOut };
     int legs = isTate ? 3 : 2;
+    // Landscape: the energizer is what turns the ghosts blue, so the first leg ends the moment
+    // Pac-Man's mouth reaches it rather than when the whole line has left the panel. Everyone then
+    // turns on the spot, which is what the arcade does. The portrait layout has no energizer - its
+    // three legs carry the hours, the pellets and the minutes - so it keeps its own path.
+    const int energizerX = w - 4 * s;
+    if (!isTate) {
+        path[0] = energizerX + pacW / 2.0f;     // off the left edge to the energizer
+        path[1] = energizerX + pacW / 2.0f;     // and from there back off the left edge
+        pauseLen = 0.0f;                        // no beat: the turn is the moment he eats it
+    }
     float maxPath = 0;
     for (int i = 0; i < legs; i++) maxPath += path[i] + (i ? pauseLen : 0);
     if (transitioning) {
@@ -406,8 +416,6 @@ void PacmanClock::update() {
                 printTime(newTimeStr, cX, cY, scale, font, color1, colonColor, -100, cutX);
                 printTime(oldTimeStr, cX, cY, scale, font, oldDigitColor, oldColonColor, cutX, w + 100);
 
-                int energizerX = w - 4 * s;
-
                 // A few crumbs at the mouth, so he still reads as eating the old time.
                 {
                     uint8_t seed = (now / 40) ^ (uint8_t)cutX;
@@ -439,15 +447,19 @@ void PacmanClock::update() {
                     }
                 }
             } else {
-                // Leg 1: The 4 ghosts flee back BLUE and frightened (right->left), Pac-Man chases!
+                // Leg 1: the energizer has just been eaten. The ghosts are blue and everyone has
+                // turned where they stood, so the line carries on from the positions it held at the
+                // end of leg 0 - Pac-Man at the energizer with the ghosts trailing to his left -
+                // and walks back off the left edge with him behind them.
                 printTime(newTimeStr, cX, cY, scale, font, color1, colonColor);
 
                 if (!inPause) {
-                    float headX = roundf((w + ghostW / 2.0f) - legPos);
+                    float pacBackX = energizerX - legPos;
                     for (int i = 0; i < 4; i++) {
-                        drawGhost((int)headX + i * ghostSpacing, cY, s, ghostColors[i], skirtFrame, /*lookRight=*/ false, /*frightened=*/ true);
+                        drawGhost((int)roundf(pacBackX - firstGhost - i * ghostSpacing), cY, s,
+                                  ghostColors[i], skirtFrame, /*lookRight=*/ false, /*frightened=*/ true);
                     }
-                    drawPacman((int)headX + chaseLen, cY, s, pacFrame, /*facingRight=*/ false);
+                    drawPacman((int)roundf(pacBackX), cY, s, pacFrame, /*facingRight=*/ false);
                 }
             }
         }
