@@ -3,6 +3,8 @@
 #include "engines/DecibelEngine.h"
 #include "engines/VisualizerEngine.h"
 #include "engines/TempEngine.h"
+#include "engines/clocks/ClockFaceFont.h"
+#include "core/I18n.h"
 
 void setUp(void) {}
 void tearDown(void) {}
