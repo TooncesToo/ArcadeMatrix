@@ -125,7 +125,12 @@ void PacmanClock::printTime(const char* str, int centreX, int centreY, int scale
             uint16_t col = (str[i] == ':') ? colonColor : digitColor;
             if (col != 0) {
                 uint16_t glowColor = 0, coreColor = col;
-                if (ClockFaceFont::glowFor(glow, col, glowColor, coreColor)) {   // as the Matrix face draws it
+                bool hasGlow = ClockFaceFont::glowFor(glow, col, glowColor, coreColor);
+                if (!hasGlow) {      // the digits carry Pac-Man's yellow outline by default
+                    hasGlow = true;
+                    glowColor = matrix->color565(255, 255, 0);
+                }
+                if (hasGlow) {   // as the Matrix face draws it
                     matrix->setTextColor(glowColor);
                     matrix->setCursor(charLeft - 1, cursorY); matrix->write((uint8_t)str[i]);
                     matrix->setCursor(charLeft + 1, cursorY); matrix->write((uint8_t)str[i]);
@@ -251,13 +256,16 @@ void PacmanClock::update() {
     int speedPct = engineConfig ? engineConfig->getInt("clock_speed", 100) : 100;
     speedPct = constrain(speedPct, 25, 300);
 
-    uint16_t color1 = matrix->color565(255, 255, 255);
+    // The face's own palette: the digits carry the blue the colon is drawn in, so the yellow
+    // outline below reads against them instead of bleeding into white. An instance that sets
+    // clock_color_1 still gets exactly what it asked for.
+    uint16_t color1 = matrix->color565(60, 100, 255);
     const char* colStr = engineConfig ? engineConfig->getString("clock_color_1", "").c_str() : "";
     if (colStr[0] == '#') {
         long c1 = strtol(&colStr[1], NULL, 16);
         color1 = matrix->color565((c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF);
     }
-    if (color1 == 0) color1 = matrix->color565(255, 255, 255);
+    if (color1 == 0) color1 = matrix->color565(60, 100, 255);
     uint16_t colonColor = matrix->color565(60, 100, 255);
     uint16_t dotColor = matrix->color565(255, 183, 174);
     // The digits waiting to be eaten keep the clock's own colours. Dimming them made the whole
