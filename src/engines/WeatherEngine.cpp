@@ -65,7 +65,9 @@ EngineError WeatherEngine::initialize(EngineContext* context, const EngineConfig
 void WeatherEngine::activate() {
     requestRedraw();
     startFetchTask();   // so the first forecast is already on its way before the slot comes round
-    if (config_api_key.isEmpty() || config_city.isEmpty()) {
+    // An OpenWeatherMap instance without a key borrows the first weather instance's settings. A Home
+    // Assistant instance needs no key, and borrowing would replace its own topic with another's.
+    if (!m_haSource.load(std::memory_order_acquire) && (config_api_key.isEmpty() || config_city.isEmpty())) {
         extern ConfigLoader config;
         ConfigSnapshotGuard guard = config.acquireSnapshot();
         for (const auto& inst : guard->instances) {
