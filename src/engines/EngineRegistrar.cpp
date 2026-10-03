@@ -21,6 +21,7 @@
 #include "GNewsEngine.h"
 #include "MarqueeEngine.h"
 #include "GraphEngine.h"
+#include "ValuesEngine.h"
 
 RequirementCheckResult EngineRegistrar::checkRequirements(const EngineRequirements& req) {
     const auto& caps = hardwareHAL.capabilities();
@@ -82,6 +83,7 @@ void EngineRegistrar::registerAll() {
     static const GNewsEngineDescriptorHandler gnewsHandler;
     static const MarqueeEngineDescriptorHandler marqueeHandler;
     static const GraphEngineDescriptorHandler graphHandler;
+    static const ValuesEngineDescriptorHandler valuesHandler;
 
     const IEngineDescriptorHandler* handlers[] = {
         &clockHandler,
@@ -101,7 +103,8 @@ void EngineRegistrar::registerAll() {
         &dashboardHandler,
         &gnewsHandler,
         &marqueeHandler,
-        &graphHandler
+        &graphHandler,
+        &valuesHandler
     };
 
     for (const auto* handler : handlers) {

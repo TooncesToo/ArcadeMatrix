@@ -6,6 +6,8 @@
 #include "core/ConfigLoader.h"
 #include "../../include/core/EngineContract.h"
 #include "engines/graph/GraphPayload.h"
+#include "engines/graph/FeedPayloads.h"
+#include <math.h>
 #include <string.h>
 
 // =========================================================================
@@ -422,6 +424,14 @@ void test_preemption_stack_bounded_depth(void) {
 static graph::GraphData g_graph;
 static DynamicJsonDocument g_graphDoc(32768);
 
+static bool parseDoc(const char* json) {
+    static char buf[4096];
+    strncpy(buf, json, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    g_graphDoc.clear();
+    return deserializeJson(g_graphDoc, buf) == DeserializationError::Ok;
+}
+
 static bool parseGraph(const char* json) {
     static char buf[4096];
     strncpy(buf, json, sizeof(buf) - 1);
@@ -451,7 +461,9 @@ void test_graph_payload_parses_v1_fields(void) {
     // Non-numeric points read as zero.
     TEST_ASSERT_EQUAL_FLOAT(0.0f, graph::valueAt(g_graph, 1, 1));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, graph::valueAt(g_graph, 1, 2));
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, graph::scaleMax(g_graph));
+    graph::Range r = graph::yRange(g_graph);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, r.lo);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, r.hi);
 }
 
 void test_graph_payload_right_aligns_short_series(void) {
@@ -471,11 +483,64 @@ void test_graph_payload_right_aligns_short_series(void) {
 void test_graph_payload_auto_scale_stacked_and_overlaid(void) {
     TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"data\":[1,4]},{\"data\":[2,1]}]}"));
     TEST_ASSERT_TRUE(g_graph.stack);                     // default
-    TEST_ASSERT_EQUAL_FLOAT(5.0f, graph::scaleMax(g_graph));   // tallest stacked column
+    graph::Range r = graph::yRange(g_graph);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, r.lo);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, r.hi);                 // tallest stacked column
     TEST_ASSERT_TRUE(parseGraph("{\"stack\":false,\"max\":0,\"series\":[{\"data\":[1,4]},{\"data\":[2,1]}]}"));
-    TEST_ASSERT_EQUAL_FLOAT(4.0f, graph::scaleMax(g_graph));   // tallest single point
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, graph::yRange(g_graph).hi);   // tallest single point
     TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"data\":[0,0]}]}"));
-    TEST_ASSERT_TRUE(graph::scaleMax(g_graph) > 0.0f);         // never divide by zero
+    r = graph::yRange(g_graph);
+    TEST_ASSERT_TRUE(r.hi > r.lo);                       // never divide by zero
+}
+
+void test_graph_negative_bars_and_zero_line(void) {
+    // Positive and negative stacks are kept apart; the range spans both and the zero line shows.
+    TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"data\":[2,-1]},{\"data\":[1,-3]}]}"));
+    graph::Range r = graph::yRange(g_graph);
+    TEST_ASSERT_EQUAL_FLOAT(-4.0f, r.lo);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, r.hi);
+    TEST_ASSERT_TRUE(graph::zeroLineVisible(g_graph, r));
+    TEST_ASSERT_EQUAL(4, graph::heightFor(0.0f, r, 7));
+    TEST_ASSERT_EQUAL_FLOAT(-3.0f, graph::valueAt(g_graph, 1, 1));
+    // Bars only and all positive: no zero line (0 is the bottom edge, not inside the range).
+    TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"data\":[1,2]}]}"));
+    TEST_ASSERT_FALSE(graph::zeroLineVisible(g_graph, graph::yRange(g_graph)));
+}
+
+void test_graph_lines_range_gaps_and_explicit_min_max(void) {
+    TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"style\":\"line\",\"data\":[70,null,80,\"x\"]}]}"));
+    TEST_ASSERT_TRUE(g_graph.series[0].line);
+    TEST_ASSERT_TRUE(graph::hasLines(g_graph));
+    TEST_ASSERT_FALSE(graph::hasBars(g_graph));
+    TEST_ASSERT_TRUE(isnan(graph::pointAt(g_graph, 0, 1)));   // null = gap
+    TEST_ASSERT_TRUE(isnan(graph::pointAt(g_graph, 0, 3)));   // non-number = gap
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, graph::valueAt(g_graph, 0, 1));
+    graph::Range r = graph::yRange(g_graph);                  // [70,80] padded 5% of 10 -> 0.5 min
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 69.5f, r.lo);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 80.5f, r.hi);
+    TEST_ASSERT_TRUE(parseGraph("{\"series\":[{\"style\":\"line\",\"data\":[0,100]}]}"));
+    r = graph::yRange(g_graph);                               // 5% of 100 = 5
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -5.0f, r.lo);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 105.0f, r.hi);
+    // Explicit range, values outside clamp to the plot edges.
+    TEST_ASSERT_TRUE(parseGraph("{\"min\":68,\"max\":90,\"yaxis\":true,\"series\":[{\"style\":\"line\",\"data\":[60,95,79]}]}"));
+    TEST_ASSERT_TRUE(g_graph.yaxis);
+    r = graph::yRange(g_graph);
+    TEST_ASSERT_EQUAL_FLOAT(68.0f, r.lo);
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, r.hi);
+    TEST_ASSERT_EQUAL(0, graph::lineOffsetFor(60.0f, r, 24));
+    TEST_ASSERT_EQUAL(23, graph::lineOffsetFor(95.0f, r, 24));
+    TEST_ASSERT_EQUAL(12, graph::lineOffsetFor(79.0f, r, 24));
+    // max <= min = automatic, with the given min kept as the bottom.
+    TEST_ASSERT_TRUE(parseGraph("{\"min\":50,\"max\":40,\"series\":[{\"style\":\"line\",\"data\":[60,70]}]}"));
+    r = graph::yRange(g_graph);
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, r.lo);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 70.5f, r.hi);
+    // Degree sign survives as one cell; other UTF-8 becomes '?'.
+    TEST_ASSERT_TRUE(parseGraph("{\"summary\":\"76\u00b0\",\"title\":\"\u00e9t\u00e9\",\"series\":[]}"));
+    TEST_ASSERT_EQUAL(3, (int)strlen(g_graph.summary));
+    TEST_ASSERT_EQUAL((char)0xB0, g_graph.summary[2]);
+    TEST_ASSERT_EQUAL_STRING("?t?", g_graph.title);
 }
 
 void test_graph_payload_rejects_bad_input(void) {
@@ -533,10 +598,72 @@ void test_graph_layout_and_column_mapping(void) {
     TEST_ASSERT_EQUAL(128, graph::columnForSlot(96, 128, 96));
     TEST_ASSERT_EQUAL(graph::slotForColumn(graph::columnForSlot(28, 128, 96), 128, 96), 28);
 
-    TEST_ASSERT_EQUAL(24, graph::barHeight(6.0f, 6.0f, 24));
-    TEST_ASSERT_EQUAL(24, graph::barHeight(9.0f, 6.0f, 24));   // clamped
-    TEST_ASSERT_EQUAL(12, graph::barHeight(3.0f, 6.0f, 24));
-    TEST_ASSERT_EQUAL(0, graph::barHeight(-1.0f, 6.0f, 24));
+    graph::Range r{0.0f, 6.0f};
+    TEST_ASSERT_EQUAL(24, graph::heightFor(6.0f, r, 24));
+    TEST_ASSERT_EQUAL(24, graph::heightFor(9.0f, r, 24));    // clamped
+    TEST_ASSERT_EQUAL(12, graph::heightFor(3.0f, r, 24));
+    TEST_ASSERT_EQUAL(0, graph::heightFor(-1.0f, r, 24));
+}
+
+
+void test_feed_values_payload(void) {
+    TEST_ASSERT_TRUE(parseDoc("{\"v\":1,\"title\":\"ENERGY\",\"tiles\":["
+        "{\"label\":\"HOUSE\",\"value\":\"2.8\",\"unit\":\"kW\",\"color\":\"#FFB000\"},"
+        "{\"label\":\"OUT\",\"value\":\"75\",\"unit\":\"\u00b0F\",\"label_color\":\"#102030\"},"
+        "{\"label\":\"N\",\"value\":3.5},{\"label\":\"D\"},{\"label\":\"E\"}]}"));
+    TEST_ASSERT_EQUAL((int)feed::Kind::Values, (int)feed::detectKind(g_graphDoc));
+    static feed::ValuesData v;
+    TEST_ASSERT_TRUE(feed::parseValues(g_graphDoc, v));
+    TEST_ASSERT_EQUAL_STRING("ENERGY", v.title);
+    TEST_ASSERT_EQUAL(4, v.count);                          // fifth tile ignored
+    TEST_ASSERT_EQUAL_STRING("2.8", v.tiles[0].value);
+    TEST_ASSERT_EQUAL_HEX8(0xB0, v.tiles[0].color.g);
+    TEST_ASSERT_EQUAL_HEX8(0x80, v.tiles[0].labelColor.r);  // default label colour
+    TEST_ASSERT_EQUAL_HEX8(0x30, v.tiles[1].labelColor.b);
+    TEST_ASSERT_EQUAL((char)0xB0, v.tiles[1].unit[0]);
+    TEST_ASSERT_EQUAL_STRING("3.5", v.tiles[2].value);       // bare number accepted
+    TEST_ASSERT_EQUAL_HEX8(0xFF, v.tiles[3].color.r);       // default value colour white
+}
+
+void test_feed_weather_payload_and_conditions(void) {
+    TEST_ASSERT_TRUE(parseDoc("{\"v\":1,\"units\":\"imperial\",\"current\":{\"temp\":75,"
+        "\"condition\":\"clear-night\",\"humidity\":47,\"wind\":7,\"wind_unit\":\"mph\"},"
+        "\"days\":[{\"temp_max\":89,\"temp_min\":70,\"condition\":\"sunny\",\"precip_prob\":0},"
+        "{\"temp_max\":90,\"temp_min\":71},{},{},{},{\"temp_max\":1,\"temp_min\":0}]}"));
+    TEST_ASSERT_EQUAL((int)feed::Kind::Weather, (int)feed::detectKind(g_graphDoc));
+    static feed::WeatherFeed w;
+    TEST_ASSERT_TRUE(feed::parseWeather(g_graphDoc, w));
+    TEST_ASSERT_TRUE(w.imperial);
+    TEST_ASSERT_TRUE(w.hasCurrent);
+    TEST_ASSERT_EQUAL_FLOAT(75.0f, w.currentTemp);
+    TEST_ASSERT_EQUAL_STRING("clear-night", w.currentCondition);
+    TEST_ASSERT_EQUAL(47, w.humidity);
+    TEST_ASSERT_EQUAL(5, w.dayCount);                        // sixth day ignored
+    TEST_ASSERT_EQUAL_FLOAT(89.0f, w.days[0].tempMax);
+    TEST_ASSERT_EQUAL(0, w.days[0].precipProb);
+    TEST_ASSERT_EQUAL_STRING("", w.days[1].condition);
+    TEST_ASSERT_EQUAL(-1, w.days[1].precipProb);
+    TEST_ASSERT_FALSE(w.days[2].hasTemps);
+
+    TEST_ASSERT_EQUAL_STRING("01d", feed::iconForCondition("sunny"));
+    TEST_ASSERT_EQUAL_STRING("01n", feed::iconForCondition("clear-night"));
+    TEST_ASSERT_EQUAL_STRING("02d", feed::iconForCondition("partlycloudy"));
+    TEST_ASSERT_EQUAL_STRING("09d", feed::iconForCondition("pouring"));
+    TEST_ASSERT_EQUAL_STRING("13d", feed::iconForCondition("hail"));
+    TEST_ASSERT_EQUAL_STRING("03d", feed::iconForCondition("windy-variant"));
+    TEST_ASSERT_EQUAL_STRING("03d", feed::iconForCondition("volcano"));
+    TEST_ASSERT_EQUAL(9, feed::conditionGroup("lightning-rainy"));
+    TEST_ASSERT_EQUAL(-1, feed::conditionGroup("volcano"));
+
+    // Kinds: a graph is a graph, junk is nothing, and metric is the default unit.
+    TEST_ASSERT_TRUE(parseDoc("{\"series\":[]}"));
+    TEST_ASSERT_EQUAL((int)feed::Kind::Graph, (int)feed::detectKind(g_graphDoc));
+    TEST_ASSERT_TRUE(parseDoc("{\"hello\":1}"));
+    TEST_ASSERT_EQUAL((int)feed::Kind::None, (int)feed::detectKind(g_graphDoc));
+    TEST_ASSERT_TRUE(parseDoc("{\"current\":{\"temp\":21}}"));
+    TEST_ASSERT_TRUE(feed::parseWeather(g_graphDoc, w));
+    TEST_ASSERT_FALSE(w.imperial);
+    TEST_ASSERT_EQUAL(0, w.dayCount);
 }
 
 // =========================================================================
@@ -581,6 +708,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_graph_payload_auto_scale_stacked_and_overlaid);
     RUN_TEST(test_graph_payload_rejects_bad_input);
     RUN_TEST(test_graph_layout_and_column_mapping);
+    RUN_TEST(test_graph_negative_bars_and_zero_line);
+    RUN_TEST(test_graph_lines_range_gaps_and_explicit_min_max);
+    RUN_TEST(test_feed_values_payload);
+    RUN_TEST(test_feed_weather_payload_and_conditions);
 
     return UNITY_END();
 }

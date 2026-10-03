@@ -123,7 +123,7 @@ Une seconde connexion MQTT, distincte de la synchronisation arcade `"mqtt"` ci-d
 | `topic_prefix` | `String` | `arcadematrix` | Le panneau s'abonne à `<topic_prefix>/#`. |
 
 - L'identifiant client est `<hostname wifi>-data`, plusieurs panneaux peuvent donc partager un même broker.
-- Le dernier message de **8 topics** au maximum est conservé, **4096 octets** chacun (au-delà, il est ignoré et journalisé une fois). Publiez des messages **retenus** pour qu'un panneau ait ses données dès son redémarrage.
+- Le dernier message de **8 topics** au maximum est conservé, **8192 octets** chacun (au-delà, il est ignoré et journalisé une fois). Publiez des messages **retenus** pour qu'un panneau ait ses données dès son redémarrage.
 - `GET /api/status` indique `data_mqtt_connected` et `data_mqtt_topics`.
 - Web UI : *Système → MQTT & API → MQTT Flux de Données*. Clés plates sur `/api/settings` : `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix` ; objet `data_mqtt` imbriqué sur `/api/system`.
 - Nécessite la PSRAM (les messages y sont stockés) ; sans PSRAM le flux n'est pas démarré.
@@ -350,12 +350,24 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `weather`
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
+| `source` | `Options` | `owm` | `owm`, `ha` | `owm` = OpenWeatherMap ; `ha` = message Home Assistant sur la liaison MQTT du flux de données (voir ci-dessous). Les champs OpenWeatherMap sont masqués pour `ha`. |
+| `topic` | `String` | `arcadematrix/weather/local` | Texte | `ha` uniquement : topic sur lequel le message est publié. |
 | `api_key` | `String` | `""` | Clé API gratuite | Clé API OpenWeatherMap (création gratuite sur [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Texte | Ville pour les prévisions météo (voir guide ci-dessous). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Unité de température : `metric` pour Celsius (°C) ou `imperial` pour Fahrenheit (°F). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Langue d'affichage des jours (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` à `64` | Décalage horizontal en pixels. |
 | `offset_y` | `int` | `0` | `-32` à `32` | Décalage vertical en pixels. |
+
+#### Source Home Assistant (`source: ha`)
+Aucune requête HTTP : le panneau lit un message retenu du flux `data_mqtt`. Les températures s'affichent dans l'unité envoyée par HA (`units` : `imperial` = °F, `metric` = °C) et ne sont jamais converties.
+
+```json
+{"v":1,"units":"imperial",
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...jusqu'à 5"]}
+```
+Le jour 0 est aujourd'hui (`current.temp` en direct, plage et condition de `days[0]`) ; jusqu'à 5 jours défilent. Les conditions sont celles de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`) ; une condition inconnue s'affiche telle quelle.
 
 #### Formatage du champ `city` sur OpenWeatherMap
 OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres pour les États-Unis) :
@@ -538,15 +550,21 @@ Trace un graphique en barres/aires à partir d'un message JSON (version 1) :
     {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
     {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
   ],
-  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "bands": [{"from": 60, "to": 72, "color": "#502800"}],
   "marks": [{"at": 28, "color": "#404040"}]
 }
 ```
 
-- Les données sont **alignées à droite** : le dernier point est le plus récent et occupe la colonne la plus à droite ; une série plus courte laisse la gauche vide. `slots` vaut par défaut la longueur de la série la plus longue. Jusqu'à 4 séries de 288 points ; un point non numérique compte pour 0.
-- `max` : haut de l'échelle ; absent ou `<= 0` = automatique (colonne empilée la plus haute). `stack: true` empile les séries de bas en haut dans l'ordre ; `false` les superpose (la suivante par-dessus).
+- Les données sont **alignées à droite** : le dernier point est le plus récent et occupe la colonne la plus à droite ; une série plus courte laisse la gauche vide. `slots` vaut par défaut la longueur de la série la plus longue. Jusqu'à 4 séries de 288 points ; un point `null` ou non numérique compte pour 0 dans une barre et laisse un trou dans une ligne.
+- `max` : haut de l'échelle ; absent ou `<= min` = automatique (colonne empilée la plus haute). `stack: true` empile les séries de bas en haut dans l'ordre ; `false` les superpose (la suivante par-dessus).
 - `bands` : plages de colonnes en fond, en indices de slot `[from, to)`, par ex. les heures pleines du fournisseur d'électricité. `marks` : lignes verticales pointillées au bord gauche d'un slot, par ex. minuit. Couleurs en `#RRGGBB`.
-- Les colonnes correspondent aux slots par `slot = x * slots / largeur`. 128x32 : en-tête lignes 0-6, graphique lignes 8-31. 256x64 : en-tête en taille double, graphique lignes 15-63 avec une ligne de repère discrète à mi-échelle. Avant le premier message, l'écran affiche `NO DATA`.
+- Les colonnes correspondent aux slots par `slot = x * slots / largeur`. 128x32 : en-tête lignes 0-6, graphique lignes 8-31. 256x64 : en-tête en taille double, graphique lignes 15-63 avec une ligne de repère discrète au milieu de la plage y. Avant le premier message, l'écran affiche `PAS DE DONNEES`.
+
+La version 1 accepte aussi (tout est optionnel, les anciens messages s'affichent à l'identique) :
+- `min` : bas de l'axe y (0 par défaut, ou automatique). Avec une série `"style":"line"`, la plage automatique est celle des données, élargie de 5 % (au moins 0,5) de chaque côté.
+- `"style": "line"` par série : ligne de 1 px, `null` = trou (pas de jonction), tracée après les barres. Les barres partent de la ligne zéro, les valeurs négatives descendent ; `stack` ne concerne que les barres (piles positives et négatives séparées). Une ligne zéro discrète apparaît quand 0 est dans la plage et qu'il y a des barres.
+- `"yaxis": true` : sur les panneaux d'au moins 64 px de haut, les bornes de la plage s'affichent en entiers (police 3x5) à gauche et le graphique se décale à droite.
+- `°` dans `title`/`summary` s'affiche comme le signe degré.
 
 Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 valeurs glissantes de 15 min) :
 
@@ -569,6 +587,18 @@ Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 v
                          {"label": "DN", "color": "#00D0A0",
                           "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
 ```
+
+### Moteur : `values` (Valeurs du flux de données)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/values/energy` | Topic MQTT complet des valeurs (via `data_mqtt`). |
+| `show_title` | `bool` | `true` | Ligne de titre au-dessus de 1 à 3 tuiles (jamais avec 4). |
+
+```json
+{"v":1,"title":"HOME",
+ "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...jusqu'à 4"]}
+```
+1 à 4 tuiles ; les valeurs sont des chaînes déjà formatées (le panneau ne calcule rien). 1 à 3 tuiles en colonnes, 4 en grille 2x2 avec le libellé à gauche et la valeur alignée à droite. La plus grande police qui tient est utilisée ; une valeur trop large perd d'abord son unité, puis est coupée par la fin.
 
 ---
 

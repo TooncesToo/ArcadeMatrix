@@ -6,13 +6,14 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <vector>
 #include "../api/IWeatherProvider.h"
+#include "graph/FeedPayloads.h"
 
 #include "../../include/core/EngineContract.h"
 #include "../core/AppEngineContext.h"
 
 class WeatherEngine : public IEngine {
 public:
-    static const int MAX_FORECAST_DAYS = 3;
+    static const int MAX_FORECAST_DAYS = 5;   // OWM fills 3; a Home Assistant payload up to 5
 
     WeatherEngine();
     ~WeatherEngine();
@@ -69,6 +70,18 @@ private:
     void startFetchTask();
     static void fetchTaskEntry(void* arg);
     void fetchOnce();
+
+    // Source "ha": the forecast comes from a Home Assistant payload on the data feed MQTT link
+    // (DataFeed) instead of OpenWeatherMap; the fetch task converts it into the same buffers, with
+    // no HTTP at all. The topic is double-buffered for the same Core 1 -> Core 0 hand-off reason.
+    std::atomic<bool> m_haSource{false};
+    std::atomic<bool> m_haImperial{false};
+    char m_haTopic[2][96] = {{0}, {0}};
+    std::atomic<uint8_t> m_haTopicIdx{0};
+    uint32_t m_haSeenSeq = 0;           ///< fetch task only
+    feed::WeatherFeed m_haScratch{};    ///< fetch task only
+    void pollHaFeed();
+    bool useFahrenheit() const;
     // Two forecast buffers with an atomic index instead of a mutex: Core 0 fills the buffer that is
     // not on screen and then publishes it, so the render loop on Core 1 reads a complete forecast
     // without ever taking a lock (the Core 1 hot path stays mutex-free).

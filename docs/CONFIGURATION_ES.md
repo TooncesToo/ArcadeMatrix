@@ -123,7 +123,7 @@ Una segunda conexión MQTT, separada de la sincronización arcade `"mqtt"` de ar
 | `topic_prefix` | `String` | `arcadematrix` | El panel se suscribe a `<topic_prefix>/#`. |
 
 - El id de cliente es `<hostname wifi>-data`, así que varios paneles pueden compartir un broker.
-- Se conserva el último mensaje de hasta **8 topics**, **4096 bytes** cada uno (los mayores se descartan y se registran una vez). Publique mensajes **retenidos** para que un panel tenga datos nada más reiniciar.
+- Se conserva el último mensaje de hasta **8 topics**, **8192 bytes** cada uno (los mayores se descartan y se registran una vez). Publique mensajes **retenidos** para que un panel tenga datos nada más reiniciar.
 - `GET /api/status` informa `data_mqtt_connected` y `data_mqtt_topics`.
 - Interfaz Web: *Sistema → MQTT & API → MQTT de Datos*. Claves planas en `/api/settings`: `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix`; objeto `data_mqtt` anidado en `/api/system`.
 - Requiere PSRAM (los mensajes se guardan allí); en placas sin PSRAM el flujo no se inicia.
@@ -350,12 +350,24 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `weather`
 | Campo | Tipo | Predeterminado | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
+| `source` | `Options` | `owm` | `owm`, `ha` | `owm` = OpenWeatherMap; `ha` = mensaje de Home Assistant en el enlace MQTT de datos (ver abajo). Los campos de OpenWeatherMap se ocultan con `ha`. |
+| `topic` | `String` | `arcadematrix/weather/local` | Texto | Solo `ha`: topic en el que se publica el mensaje. |
 | `api_key` | `String` | `""` | Clave API gratuita | Clave API de OpenWeatherMap (gratis en [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Texto | Ubicación de la ciudad para el pronóstico (ver guía abajo). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Unidad de temperatura: `metric` para Celsius (°C) o `imperial` para Fahrenheit (°F). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Idioma de las etiquetas de días (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal de píxeles. |
 | `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical de píxeles. |
+
+#### Fuente Home Assistant (`source: ha`)
+No se hace ninguna petición HTTP: el panel lee un mensaje retenido del flujo `data_mqtt`. Las temperaturas se muestran en la unidad que envía HA (`units`: `imperial` = °F, `metric` = °C) y nunca se convierten.
+
+```json
+{"v":1,"units":"imperial",
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...hasta 5"]}
+```
+El día 0 es hoy (`current.temp` en vivo, rango y condición de `days[0]`); se muestran hasta 5 días. Las condiciones son las estándar de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); una desconocida se muestra tal cual.
 
 #### Cómo formatear el campo `city` en OpenWeatherMap
 OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
@@ -540,15 +552,21 @@ Dibuja un gráfico de barras/áreas a partir de un mensaje JSON (versión 1):
     {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
     {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
   ],
-  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "bands": [{"from": 60, "to": 72, "color": "#502800"}],
   "marks": [{"at": 28, "color": "#404040"}]
 }
 ```
 
-- Los datos se **alinean a la derecha**: el último punto es el más reciente y ocupa la columna más a la derecha; una serie más corta deja vacía la izquierda. `slots` toma por defecto la longitud de la serie más larga. Hasta 4 series de 288 puntos; un punto no numérico cuenta como 0.
-- `max`: tope de la escala; ausente o `<= 0` = automático (columna apilada más alta). `stack: true` apila las series de abajo arriba en orden; `false` las superpone (la siguiente encima).
+- Los datos se **alinean a la derecha**: el último punto es el más reciente y ocupa la columna más a la derecha; una serie más corta deja vacía la izquierda. `slots` toma por defecto la longitud de la serie más larga. Hasta 4 series de 288 puntos; un punto `null` o no numérico cuenta como 0 en una barra y deja un hueco en una línea.
+- `max`: tope de la escala; ausente o `<= min` = automático (columna apilada más alta). `stack: true` apila las series de abajo arriba en orden; `false` las superpone (la siguiente encima).
 - `bands`: rangos de columnas de fondo en índices de slot `[from, to)`, p. ej. las horas punta de la compañía eléctrica. `marks`: líneas verticales punteadas en el borde izquierdo de un slot, p. ej. medianoche. Colores en `#RRGGBB`.
-- Las columnas se asignan a slots con `slot = x * slots / ancho`. 128x32: encabezado filas 0-6, gráfico filas 8-31. 256x64: encabezado a doble tamaño, gráfico filas 15-63 con una línea guía tenue a media escala. Antes del primer mensaje la pantalla muestra `NO DATA`.
+- Las columnas se asignan a slots con `slot = x * slots / ancho`. 128x32: encabezado filas 0-6, gráfico filas 8-31. 256x64: encabezado a doble tamaño, gráfico filas 15-63 con una línea guía tenue en el centro del rango y. Antes del primer mensaje la pantalla muestra `SIN DATOS`.
+
+La versión 1 acepta además (todo opcional, los mensajes antiguos se ven igual):
+- `min`: base del eje y (0 por defecto, o automático). Con alguna serie `"style":"line"`, el rango automático es el de los datos ampliado un 5 % (al menos 0,5) por cada lado.
+- `"style": "line"` por serie: línea de 1 px, `null` = hueco (sin unión), dibujada después de las barras. Las barras parten de la línea cero y los negativos bajan; `stack` solo afecta a barras (pilas positivas y negativas por separado). Aparece una línea cero tenue cuando 0 está dentro del rango y hay barras.
+- `"yaxis": true`: en paneles de al menos 64 px de alto, los extremos del rango se muestran como enteros (fuente 3x5) a la izquierda y el gráfico se desplaza a la derecha.
+- `°` en `title`/`summary` se dibuja como el signo de grado.
 
 Ejemplo de automatización de Home Assistant (los dos atributos guardan los 96 valores móviles de 15 min):
 
@@ -571,6 +589,18 @@ Ejemplo de automatización de Home Assistant (los dos atributos guardan los 96 v
                          {"label": "DN", "color": "#00D0A0",
                           "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
 ```
+
+### Motor: `values` (Valores del Flujo de Datos)
+| Campo | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/values/energy` | Topic MQTT completo de los valores (vía `data_mqtt`). |
+| `show_title` | `bool` | `true` | Fila de título sobre 1 a 3 mosaicos (nunca con 4). |
+
+```json
+{"v":1,"title":"HOME",
+ "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...hasta 4"]}
+```
+1 a 4 mosaicos; los valores son cadenas ya formateadas (el panel no calcula nada). 1 a 3 mosaicos en columnas, 4 en una cuadrícula 2x2 con la etiqueta a la izquierda y el valor alineado a la derecha. Se usa la fuente más grande que cabe; un valor demasiado ancho pierde primero su unidad y luego se recorta por el final.
 
 ---
 

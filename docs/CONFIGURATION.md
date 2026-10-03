@@ -123,7 +123,7 @@ A second MQTT connection, separate from the `"mqtt"` arcade sync above, that onl
 | `topic_prefix` | `String` | `arcadematrix` | The sign subscribes to `<topic_prefix>/#`. |
 
 - The client id is `<wifi hostname>-data`, so several signs can share one broker.
-- The last payload of up to **8 topics** is kept, **4096 bytes** each (larger payloads are dropped and logged once). Publish **retained** messages so a sign has data straight after a reboot.
+- The last payload of up to **8 topics** is kept, **8192 bytes** each (larger payloads are dropped and logged once). Publish **retained** messages so a sign has data straight after a reboot.
 - `GET /api/status` reports `data_mqtt_connected` and `data_mqtt_topics`.
 - Web UI: *System → MQTT & API → Data Feed MQTT*. Flat keys on `/api/settings`: `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix`; nested `data_mqtt` object on `/api/system`.
 - Needs PSRAM (the payload store lives there); on boards without PSRAM the feed is not started.
@@ -350,12 +350,24 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `weather`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
+| `source` | `Options` | `owm` | `owm`, `ha` | `owm` = OpenWeatherMap; `ha` = Home Assistant payload on the data feed MQTT link (see below). The OpenWeatherMap fields are hidden for `ha`. |
+| `topic` | `String` | `arcadematrix/weather/local` | Text | `ha` only: topic the payload is published on. |
 | `api_key` | `String` | `""` | Free API key | Your OpenWeatherMap API Key (free tier at [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Text | City location (see formatting guide below). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Temperature unit: `metric` for Celsius (°C) or `imperial` for Fahrenheit (°F). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Language code for day labels (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
 | `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
+
+#### Home Assistant source (`source: ha`)
+No HTTP request is made; the sign reads a retained payload from the `data_mqtt` feed. Temperatures are shown in the unit HA sends (`units`: `imperial` = °F, `metric` = °C) and are never converted.
+
+```json
+{"v":1,"units":"imperial",
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...up to 5"]}
+```
+Day 0 is today (live `current.temp`, range and condition from `days[0]`); up to 5 days are shown as slides. Conditions are Home Assistant's standard set (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); an unknown one is shown as received.
 
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
@@ -540,15 +552,21 @@ Draws a bar/area graph from a JSON payload (version 1):
     {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
     {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
   ],
-  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "bands": [{"from": 60, "to": 72, "color": "#502800"}],
   "marks": [{"at": 28, "color": "#404040"}]
 }
 ```
 
-- Data is **right-aligned**: the last point is the newest and sits in the rightmost slot; a shorter series leaves the left side empty. `slots` defaults to the longest series. Up to 4 series of 288 points; non-numeric points count as 0.
-- `max`: top of the scale; absent or `<= 0` = automatic (tallest stacked column). `stack: true` stacks the series bottom-up in order; `false` overlays them (later on top).
+- Data is **right-aligned**: the last point is the newest and sits in the rightmost slot; a shorter series leaves the left side empty. `slots` defaults to the longest series. Up to 4 series of 288 points; `null` or non-numeric points count as 0 in a bar and leave a gap in a line.
+- `max`: top of the scale; absent or `<= min` = automatic (tallest stacked column). `stack: true` stacks the series bottom-up in order; `false` overlays them (later on top).
 - `bands`: background column ranges in slot indices `[from, to)`, e.g. utility peak hours. `marks`: dotted vertical lines at a slot's left edge, e.g. midnight. Colors are `#RRGGBB`.
-- Columns map to slots as `slot = x * slots / width`. 128x32: header rows 0-6, graph rows 8-31. 256x64: header at double size, graph rows 15-63 with a dim gridline at half scale. Before any payload arrives the screen shows `NO DATA`.
+- Columns map to slots as `slot = x * slots / width`. 128x32: header rows 0-6, graph rows 8-31. 256x64: header at double size, graph rows 15-63 with a dim gridline at the middle of the y range. Before any payload arrives the screen shows `NO DATA` (localized).
+
+Version 1 also accepts (all optional, older payloads render unchanged):
+- `min`: bottom of the y axis (default 0, or automatic). With any `"style":"line"` series the automatic range is the data range padded by 5% (at least 0.5) each side.
+- series `"style": "line"`: 1 px line, `null` = gap (no join across it), drawn after the bars. Bars grow from the zero line, so negative values go down; `stack` applies to bar series only (positive and negative stacks apart). A dim zero line shows when 0 is inside the range and bars exist.
+- `"yaxis": true`: on panels at least 64 px tall, the range ends are printed as integers in a 3x5 font at the left edge and the plot moves right.
+- `°` in `title`/`summary` is drawn as the degree sign.
 
 Example Home Assistant automation (the two attributes hold the rolling 96 x 15 min values):
 
@@ -571,6 +589,18 @@ Example Home Assistant automation (the two attributes hold the rolling 96 x 15 m
                          {"label": "DN", "color": "#00D0A0",
                           "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
 ```
+
+### Engine: `values` (Data Feed Values)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/values/energy` | Full MQTT topic the values are published on (via `data_mqtt`). |
+| `show_title` | `bool` | `true` | Title row above 1-3 tiles (never with 4). |
+
+```json
+{"v":1,"title":"HOME",
+ "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...up to 4"]}
+```
+1-4 tiles; values are preformatted strings (the sign does no arithmetic). 1-3 tiles sit in columns, 4 in a 2x2 grid with the label left and the value right-aligned. The largest font that fits is used; a value too wide drops its unit first, then is cut from the end.
 
 ---
 
