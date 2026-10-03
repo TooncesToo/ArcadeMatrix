@@ -496,6 +496,17 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
     uint16_t colorDesc = matrix->color565(210, 210, 210);     // Light silver
     uint16_t colorAfternoon = data.isNow ? colorDesc                   // live page line 2: grey
                                          : matrix->color565(255, 150, 50); // Warm Orange (Afternoon / Max)
+    // In Fahrenheit the high goes on top and the low below (US convention); Celsius keeps low on top.
+    // The rows simply trade text and colour, so every panel layout follows.
+    if (!data.isNow && unitChar == 'F') {
+        char hi[sizeof(tempMinStr)];
+        strlcpy(hi, tempMaxStr, sizeof(hi));
+        strlcpy(tempMaxStr, tempMinStr, sizeof(tempMaxStr));
+        strlcpy(tempMinStr, hi, sizeof(tempMinStr));
+        uint16_t c = colorMorning;
+        colorMorning = colorAfternoon;
+        colorAfternoon = c;
+    }
     // The label column is placed from the first line only on the live page, so its longer second
     // line does not push the label right.
     const char* widthRef = data.isNow ? tempMinStr : nullptr;
