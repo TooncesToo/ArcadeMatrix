@@ -23,6 +23,7 @@ public:
     void update(EngineContext* context) override;
     void render(EngineContext* context) override {}
     void deactivate() override {}
+    void resume() override { requestRedraw(); }   // back from a preemption or a slot transition
     void onConfigChanged(const EngineConfig* config) override;
     void onDisplayGeometryChanged(const DisplayGeometry& geometry) override { requestRedraw(); }
     bool isRealtime() const override { return false; }
