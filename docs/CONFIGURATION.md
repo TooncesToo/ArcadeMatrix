@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "display": { ... },
   "audio": { ... },
@@ -105,6 +106,27 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 
 > [!NOTE]
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
+
+---
+
+## 5.1 The `"data_mqtt"` Block (Data Feed: Home Assistant, Node-RED…)
+
+A second MQTT connection, separate from the `"mqtt"` arcade sync above, that only **receives data for engines to draw** (today the `graph` engine). It never takes over the display and never shows the "WAITING FOR MARQUEE" screen, so both links can run at the same time against different brokers. Changes apply live, without a reboot.
+
+| Key | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | `bool` | `false` | Turn the data feed on. |
+| `broker` | `String` | `""` | Broker IP/host (e.g. the Home Assistant Mosquitto add-on). Empty = off. |
+| `port` | `int` | `1883` | Broker port. |
+| `user` | `String` | `""` | Broker username (optional). |
+| `pass` | `String` | `""` | Broker password (optional). |
+| `topic_prefix` | `String` | `arcadematrix` | The sign subscribes to `<topic_prefix>/#`. |
+
+- The client id is `<wifi hostname>-data`, so several signs can share one broker.
+- The last payload of up to **8 topics** is kept, **4096 bytes** each (larger payloads are dropped and logged once). Publish **retained** messages so a sign has data straight after a reboot.
+- `GET /api/status` reports `data_mqtt_connected` and `data_mqtt_topics`.
+- Web UI: *System → MQTT & API → Data Feed MQTT*. Flat keys on `/api/settings`: `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix`; nested `data_mqtt` object on `/api/system`.
+- Needs PSRAM (the payload store lives there); on boards without PSRAM the feed is not started.
 
 ---
 
@@ -496,6 +518,59 @@ The `gnews` engine provides a real-time live news ticker and breaking news bulle
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `graph` (Data Feed Graph)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/graph/ac` | Full MQTT topic the graph is published on (via the `data_mqtt` feed). |
+| `show_header` | `bool` | `true` | Title (left) and summary (right) line above the graph. |
+
+Draws a bar/area graph from a JSON payload (version 1):
+
+```json
+{
+  "v": 1,
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+- Data is **right-aligned**: the last point is the newest and sits in the rightmost slot; a shorter series leaves the left side empty. `slots` defaults to the longest series. Up to 4 series of 288 points; non-numeric points count as 0.
+- `max`: top of the scale; absent or `<= 0` = automatic (tallest stacked column). `stack: true` stacks the series bottom-up in order; `false` overlays them (later on top).
+- `bands`: background column ranges in slot indices `[from, to)`, e.g. utility peak hours. `marks`: dotted vertical lines at a slot's left edge, e.g. midnight. Colors are `#RRGGBB`.
+- Columns map to slots as `slot = x * slots / width`. 128x32: header rows 0-6, graph rows 8-31. 256x64: header at double size, graph rows 15-63 with a dim gridline at half scale. Before any payload arrives the screen shows `NO DATA`.
+
+Example Home Assistant automation (the two attributes hold the rolling 96 x 15 min values):
+
+```yaml
+# Home Assistant automation: publish a retained graph every 15 minutes
+- alias: "ArcadeMatrix - publish AC history"
+  triggers:
+    - trigger: time_pattern
+      minutes: "/15"
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: arcadematrix/graph/ac
+        retain: true
+        payload: >-
+          {{ {"v": 1, "title": "AC 24H", "summary": "12.3kWh", "unit": "kW",
+              "slots": 96, "max": 6, "stack": true,
+              "series": [{"label": "UP", "color": "#2080FF",
+                          "data": state_attr('sensor.ac_history', 'up')},
+                         {"label": "DN", "color": "#00D0A0",
+                          "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
+```
 
 ---
 

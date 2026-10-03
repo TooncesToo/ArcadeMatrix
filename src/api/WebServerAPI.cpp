@@ -30,6 +30,7 @@
 #include "../hal/GyroHAL.h"
 #include <atomic>
 #include "../core/SdLockGuard.h"
+#include "../services/DataFeed.h"
 
 // A config change is applied in memory first and then written to the card. When the write fails (the
 // card is busy with a rescan or upload, or the write itself fails) the change would silently vanish at
@@ -1056,6 +1057,8 @@ void WebServerAPI::setupRoutes() {
         }
         UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
         doc["async_tcp_hwm_bytes"] = (uint32_t)(hwm * sizeof(StackType_t));
+        doc["data_mqtt_connected"] = dataFeed.isConnected();
+        doc["data_mqtt_topics"] = dataFeed.topicCount();
 
         // Render rates since the previous /api/status call (poll it twice, a few seconds apart).
         {
@@ -1610,6 +1613,14 @@ void WebServerAPI::setupRoutes() {
         doc["mqtt_device"] = snap.mqtt.deviceName;
         doc["mqtt_allow_overlay"] = snap.mqtt.allow_overlay;
 
+        // Data feed MQTT (second link, data only)
+        doc["data_mqtt_enabled"] = snap.dataMqtt.enabled;
+        doc["data_mqtt_broker"] = snap.dataMqtt.broker;
+        doc["data_mqtt_port"] = snap.dataMqtt.port;
+        doc["data_mqtt_user"] = snap.dataMqtt.user;
+        doc["data_mqtt_pass"] = snap.dataMqtt.pass;
+        doc["data_mqtt_prefix"] = snap.dataMqtt.topicPrefix;
+
         response->setLength();
         request->send(response);
     });
@@ -1836,6 +1847,13 @@ void WebServerAPI::setupRoutes() {
             if (!doc["mqtt_pass"].isNull()) cfg.mqtt.pass = (const char*)doc["mqtt_pass"];
             if (!doc["mqtt_device"].isNull()) cfg.mqtt.deviceName = (const char*)doc["mqtt_device"];
             if (!doc["mqtt_allow_overlay"].isNull()) cfg.mqtt.allow_overlay = (bool)doc["mqtt_allow_overlay"];
+            // The data feed follows the config on its own task, so none of these needs a reboot.
+            if (!doc["data_mqtt_enabled"].isNull()) cfg.dataMqtt.enabled = (bool)doc["data_mqtt_enabled"];
+            if (!doc["data_mqtt_broker"].isNull()) cfg.dataMqtt.broker = (const char*)doc["data_mqtt_broker"];
+            if (!doc["data_mqtt_port"].isNull()) cfg.dataMqtt.port = (int)doc["data_mqtt_port"];
+            if (!doc["data_mqtt_user"].isNull()) cfg.dataMqtt.user = (const char*)doc["data_mqtt_user"];
+            if (!doc["data_mqtt_pass"].isNull()) cfg.dataMqtt.pass = (const char*)doc["data_mqtt_pass"];
+            if (!doc["data_mqtt_prefix"].isNull()) cfg.dataMqtt.topicPrefix = (const char*)doc["data_mqtt_prefix"];
             if (!doc["api_auth_enabled"].isNull()) cfg.system.api_auth_enabled = doc["api_auth_enabled"].as<bool>();
             if (!doc["api_token"].isNull()) {
                 String newTok = doc["api_token"].as<String>();
@@ -2040,6 +2058,14 @@ void WebServerAPI::setupRoutes() {
         mqtt["device_name"] = snap.mqtt.deviceName;
         mqtt["allow_overlay"] = snap.mqtt.allow_overlay;
 
+        JsonObject dmq = doc.createNestedObject("data_mqtt");
+        dmq["enabled"] = snap.dataMqtt.enabled;
+        dmq["broker"] = snap.dataMqtt.broker;
+        dmq["port"] = snap.dataMqtt.port;
+        dmq["user"] = snap.dataMqtt.user;
+        dmq["pass"] = snap.dataMqtt.pass;
+        dmq["topic_prefix"] = snap.dataMqtt.topicPrefix;
+
         JsonObject wifi = doc.createNestedObject("wifi");
         wifi["ssid"] = snap.wifi.ssid;
         wifi["hostname"] = snap.wifi.hostname;
@@ -2209,6 +2235,18 @@ void WebServerAPI::setupRoutes() {
                 if (prevMqtt != cfg.mqtt.enabled || prevBroker != cfg.mqtt.broker || prevPort != cfg.mqtt.port) {
                     willReboot = true;
                 }
+            }
+
+            // Data feed: applied live by its own task, no reboot.
+            if (doc.containsKey("data_mqtt")) {
+                JsonObject dm = doc["data_mqtt"].as<JsonObject>();
+                if (!dm["enabled"].isNull()) cfg.dataMqtt.enabled = dm["enabled"].as<bool>();
+                if (!dm["broker"].isNull()) cfg.dataMqtt.broker = dm["broker"].as<String>();
+                if (!dm["port"].isNull()) cfg.dataMqtt.port = dm["port"].as<int>();
+                if (!dm["user"].isNull()) cfg.dataMqtt.user = dm["user"].as<String>();
+                if (!dm["pass"].isNull()) cfg.dataMqtt.pass = dm["pass"].as<String>();
+                if (!dm["topic_prefix"].isNull()) cfg.dataMqtt.topicPrefix = dm["topic_prefix"].as<String>();
+                changed = true;
             }
         });
 

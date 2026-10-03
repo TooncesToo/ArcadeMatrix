@@ -16,6 +16,7 @@
 #include "../engines/MarqueeEngine.h"
 #include "../engines/GifEngine.h"
 #include "../services/AudioSessionManager.h"
+#include "../services/DataFeed.h"
 
 class AppRuntime {
 public:

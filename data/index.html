@@ -1932,6 +1932,51 @@ select.input option {
             <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
           </div>
           
+          <div class="card glass shadow" style="margin-bottom: 2rem;">
+            <h3 data-i18n="dmqtt_title">Data Feed MQTT (Home Assistant)</h3>
+            <p class="text-muted" style="font-size: 0.9em;" data-i18n="dmqtt_desc">A second MQTT connection that only receives data for the Graph screen, separate from the arcade sync above. Publish retained JSON under the topic prefix (for example arcadematrix/graph/ac) from Home Assistant; see docs/CONFIGURATION.md.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label data-i18n="dmqtt_enable">Enable Data Feed</label>
+                <select id="hw-dmqtt-enable" class="input">
+                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="dmqtt_status">Status</label>
+                <div id="dmqtt-status" class="input" style="opacity: 0.8;">—</div>
+              </div>
+            </div>
+            <div id="dmqtt-fields">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="mqtt_broker">Broker IP</label>
+                  <input type="text" id="hw-dmqtt-broker" class="input" placeholder="192.168.1.10">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_port">Port</label>
+                  <input type="number" id="hw-dmqtt-port" class="input" value="1883">
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="mqtt_user">Username</label>
+                  <input type="text" id="hw-dmqtt-user" class="input" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_pass">Password</label>
+                  <input type="password" id="hw-dmqtt-pass" class="input" placeholder="Optional">
+                </div>
+              </div>
+              <div class="form-group" style="margin-top: 1rem;">
+                <label data-i18n="dmqtt_prefix">Topic Prefix</label>
+                <input type="text" id="hw-dmqtt-prefix" class="input" placeholder="arcadematrix">
+              </div>
+            </div>
+            <button id="btn-save-dmqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="dmqtt_save_btn">Save Data Feed Settings</button>
+          </div>
+
           <div class="card glass shadow">
             <h3 data-i18n="api_auth_title">API Authentication</h3>
             <div class="form-grid">
@@ -2426,6 +2471,17 @@ const translations = {
     mqtt_user: "Username",
     mqtt_pass: "Password",
     mqtt_save_btn: "Save MQTT Settings",
+    dmqtt_title: "Data Feed MQTT (Home Assistant)",
+    dmqtt_desc: "A second MQTT connection that only receives data for the Graph screen, separate from the arcade sync above. Publish retained JSON under the topic prefix (for example arcadematrix/graph/ac) from Home Assistant; see docs/CONFIGURATION.md.",
+    dmqtt_enable: "Enable Data Feed",
+    dmqtt_status: "Status",
+    dmqtt_prefix: "Topic Prefix",
+    dmqtt_save_btn: "Save Data Feed Settings",
+    dmqtt_connected: "Connected",
+    dmqtt_disconnected: "Not connected",
+    dmqtt_topics: "topics",
+    dmqtt_saved: "Data Feed settings saved",
+    dmqtt_save_failed: "Failed to save Data Feed settings",
     recalbox_title: "Recalbox / Batocera Sync",
     recalbox_desc: "Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.",
     recalbox_custom_auth: "Use custom SSH credentials (Default: root / recalboxroot)",
@@ -2581,6 +2637,7 @@ const translations = {
     engine_decibelmeter: "Sound Meter / Noise Level",
     engine_music: "Music Player",
     engine_music_player: "Music Player",
+    engine_graph: "Graph",
 
     // Field Labels
     field_theme: "Theme / Variant",
@@ -2638,6 +2695,8 @@ const translations = {
     field_show_source: "Show Source Logo",
     field_show_title: "Show Title",
     field_show_artist: "Show Artist",
+    field_topic: "MQTT Topic",
+    field_show_header: "Show Header",
     field_show_progress: "Show Progress Bar",
     field_show_visualizer: "Show Visualizer",
     field_marquee_speed: "Marquee Speed",
@@ -2925,6 +2984,17 @@ const translations = {
     mqtt_user: "Nom d'utilisateur",
     mqtt_pass: "Mot de passe",
     mqtt_save_btn: "Enregistrer les paramètres MQTT",
+    dmqtt_title: "MQTT Flux de Données (Home Assistant)",
+    dmqtt_desc: "Une seconde connexion MQTT qui reçoit uniquement des données pour l'écran Graphique, distincte de la synchronisation arcade ci-dessus. Publiez un JSON retenu sous le préfixe de topic (par exemple arcadematrix/graph/ac) depuis Home Assistant ; voir docs/CONFIGURATION_FR.md.",
+    dmqtt_enable: "Activer le Flux de Données",
+    dmqtt_status: "État",
+    dmqtt_prefix: "Préfixe de Topic",
+    dmqtt_save_btn: "Enregistrer le Flux de Données",
+    dmqtt_connected: "Connecté",
+    dmqtt_disconnected: "Non connecté",
+    dmqtt_topics: "topics",
+    dmqtt_saved: "Paramètres du Flux de Données enregistrés",
+    dmqtt_save_failed: "Échec de l'enregistrement du Flux de Données",
     recalbox_title: "Synchronisation Recalbox / Batocera",
     recalbox_desc: "Installe automatiquement les scripts de synchro MQTT sur votre console retro-gaming via SSH.",
     recalbox_custom_auth: "Utiliser des identifiants SSH personnalisés (Défaut : root / recalboxroot)",
@@ -3080,6 +3150,7 @@ const translations = {
     engine_decibelmeter: "Sonomètre (Niveau Sonore)",
     engine_music: "Lecteur Musique Universel",
     engine_music_player: "Lecteur Musique Universel",
+    engine_graph: "Graphique",
 
     // Field Labels
     field_theme: "Thème / Variante",
@@ -3137,6 +3208,8 @@ const translations = {
     field_show_source: "Afficher le Logo Source",
     field_show_title: "Afficher le Titre",
     field_show_artist: "Afficher l'Artiste",
+    field_topic: "Topic MQTT",
+    field_show_header: "Afficher l'En-tête",
     field_show_progress: "Afficher la Barre de Progression",
     field_show_visualizer: "Afficher le Visualiseur",
     field_marquee_speed: "Vitesse de Défilement",
@@ -3424,6 +3497,17 @@ const translations = {
     mqtt_user: "Usuario",
     mqtt_pass: "Contraseña",
     mqtt_save_btn: "Guardar ajustes MQTT",
+    dmqtt_title: "MQTT de Datos (Home Assistant)",
+    dmqtt_desc: "Una segunda conexión MQTT que solo recibe datos para la pantalla Gráfico, separada de la sincronización arcade de arriba. Publique un JSON retenido bajo el prefijo de topic (por ejemplo arcadematrix/graph/ac) desde Home Assistant; consulte docs/CONFIGURATION_ES.md.",
+    dmqtt_enable: "Activar Flujo de Datos",
+    dmqtt_status: "Estado",
+    dmqtt_prefix: "Prefijo de Topic",
+    dmqtt_save_btn: "Guardar Flujo de Datos",
+    dmqtt_connected: "Conectado",
+    dmqtt_disconnected: "No conectado",
+    dmqtt_topics: "topics",
+    dmqtt_saved: "Ajustes del Flujo de Datos guardados",
+    dmqtt_save_failed: "Error al guardar el Flujo de Datos",
     recalbox_title: "Sincronización Recalbox / Batocera",
     recalbox_desc: "Instala automáticamente los scripts de sincronización MQTT en tu consola vía SSH.",
     recalbox_custom_auth: "Usar credenciales SSH personalizadas (Por defecto: root / recalboxroot)",
@@ -3579,6 +3663,7 @@ const translations = {
     engine_decibelmeter: "Sonómetro (Nivel de Ruido)",
     engine_music: "Reproductor de Música Universal",
     engine_music_player: "Reproductor de Música Universal",
+    engine_graph: "Gráfico",
 
     // Field Labels
     field_theme: "Tema / Variante",
@@ -3636,6 +3721,8 @@ const translations = {
     field_show_source: "Mostrar Logo de Origen",
     field_show_title: "Mostrar Título",
     field_show_artist: "Mostrar Artista",
+    field_topic: "Topic MQTT",
+    field_show_header: "Mostrar Encabezado",
     field_show_progress: "Mostrar Barra de Progreso",
     field_show_visualizer: "Mostrar Visualizador",
     field_marquee_speed: "Velocidad de Desplazamiento",
@@ -7386,6 +7473,54 @@ function initNetworkSettings() {
     });
   }
 
+  const dmqttEnable = document.getElementById('hw-dmqtt-enable');
+  window.syncDataFeedFields = () => {
+    const fields = document.getElementById('dmqtt-fields');
+    if (fields && dmqttEnable) fields.style.display = dmqttEnable.value === '1' ? '' : 'none';
+  };
+  if (dmqttEnable) {
+    dmqttEnable.addEventListener('change', window.syncDataFeedFields);
+    window.syncDataFeedFields();
+  }
+  const refreshDataFeedStatus = async () => {
+    const el = document.getElementById('dmqtt-status');
+    if (!el) return;
+    try {
+      const st = await API.get('/api/status');
+      if (dmqttEnable && dmqttEnable.value !== '1') {
+        el.textContent = t('mqtt_opt_disabled');
+      } else if (st && st.data_mqtt_connected) {
+        el.textContent = `${t('dmqtt_connected')} (${st.data_mqtt_topics || 0} ${t('dmqtt_topics')})`;
+      } else {
+        el.textContent = t('dmqtt_disconnected');
+      }
+    } catch (e) {
+      el.textContent = '—';
+    }
+  };
+  const btnSaveDmqtt = document.getElementById('btn-save-dmqtt');
+  if (btnSaveDmqtt) {
+    btnSaveDmqtt.addEventListener('click', async () => {
+      const data_mqtt = {
+        enabled: document.getElementById('hw-dmqtt-enable').value === '1',
+        broker: document.getElementById('hw-dmqtt-broker').value.trim(),
+        port: parseInt(document.getElementById('hw-dmqtt-port').value, 10) || 1883,
+        user: document.getElementById('hw-dmqtt-user').value,
+        pass: document.getElementById('hw-dmqtt-pass').value,
+        topic_prefix: document.getElementById('hw-dmqtt-prefix').value.trim() || 'arcadematrix',
+      };
+      try {
+        await API.post('/api/system', { data_mqtt });
+        if (window.__sysConfig) window.__sysConfig.data_mqtt = data_mqtt;
+        window.showToast(t('dmqtt_saved'), 'success');
+        setTimeout(refreshDataFeedStatus, 3000);
+      } catch (e) {
+        window.showToast(t('dmqtt_save_failed'), 'error');
+      }
+    });
+    refreshDataFeedStatus();
+  }
+
   const btnSaveApi = document.getElementById('btn-save-api');
   if (btnSaveApi) {
     btnSaveApi.addEventListener('click', async () => {
@@ -7616,6 +7751,16 @@ async function initSettings() {
     setVal('hw-mqtt-port', mqtt.port);
     setVal('hw-mqtt-user', mqtt.user || '');
     setVal('hw-mqtt-pass', mqtt.pass || '');
+
+    // Data feed MQTT (nested data_mqtt.*); the connection fields only show while it is enabled.
+    const dmqtt = cfg.data_mqtt || {};
+    setVal('hw-dmqtt-enable', dmqtt.enabled ? '1' : '0');
+    setVal('hw-dmqtt-broker', dmqtt.broker || '');
+    setVal('hw-dmqtt-port', dmqtt.port || 1883);
+    setVal('hw-dmqtt-user', dmqtt.user || '');
+    setVal('hw-dmqtt-pass', dmqtt.pass || '');
+    setVal('hw-dmqtt-prefix', dmqtt.topic_prefix || 'arcadematrix');
+    if (typeof window.syncDataFeedFields === 'function') window.syncDataFeedFields();
 
     // API auth (top-level or nested in system)
     const authEn = (cfg.api_auth_enabled !== undefined) ? cfg.api_auth_enabled : (sys.api_auth_enabled ?? false);

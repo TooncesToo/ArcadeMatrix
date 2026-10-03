@@ -15,6 +15,7 @@ Le système de configuration repose exclusivement sur un fichier unique `config.
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "display": { ... },
   "audio": { ... },
@@ -105,6 +106,27 @@ Le démon de synchronisation peut être installé sur la console (Recalbox, Bato
 
 > [!NOTE]
 > Pour Batocera, la version **v33 ou supérieure** est requise pour le changement dynamique de marquee pendant la navigation (hooks `game-selected` et `system-selected`). Batocera v32 et versions antérieures ne déclenchent que les événements de lancement/arrêt de jeu. Recalbox est supporté sur toutes ses versions.
+
+---
+
+## 5.1 Le bloc `"data_mqtt"` (Flux de données : Home Assistant, Node-RED…)
+
+Une seconde connexion MQTT, distincte de la synchronisation arcade `"mqtt"` ci-dessus, qui **reçoit uniquement des données à afficher par les moteurs** (aujourd'hui le moteur `graph`). Elle ne prend jamais la main sur l'affichage et n'affiche jamais l'écran « WAITING FOR MARQUEE » : les deux liaisons peuvent fonctionner en même temps vers des brokers différents. Les changements s'appliquent à chaud, sans redémarrage.
+
+| Clé | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | `bool` | `false` | Active le flux de données. |
+| `broker` | `String` | `""` | IP/hôte du broker (par ex. le module Mosquitto de Home Assistant). Vide = désactivé. |
+| `port` | `int` | `1883` | Port du broker. |
+| `user` | `String` | `""` | Nom d'utilisateur du broker (optionnel). |
+| `pass` | `String` | `""` | Mot de passe du broker (optionnel). |
+| `topic_prefix` | `String` | `arcadematrix` | Le panneau s'abonne à `<topic_prefix>/#`. |
+
+- L'identifiant client est `<hostname wifi>-data`, plusieurs panneaux peuvent donc partager un même broker.
+- Le dernier message de **8 topics** au maximum est conservé, **4096 octets** chacun (au-delà, il est ignoré et journalisé une fois). Publiez des messages **retenus** pour qu'un panneau ait ses données dès son redémarrage.
+- `GET /api/status` indique `data_mqtt_connected` et `data_mqtt_topics`.
+- Web UI : *Système → MQTT & API → MQTT Flux de Données*. Clés plates sur `/api/settings` : `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix` ; objet `data_mqtt` imbriqué sur `/api/system`.
+- Nécessite la PSRAM (les messages y sont stockés) ; sans PSRAM le flux n'est pas démarré.
 
 ---
 
@@ -494,6 +516,59 @@ Le moteur `gnews` affiche un bandeau d'actualités et d'alertes en temps réel a
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Moteur interne de synchronisation des marquees Pixelcade / Recalbox / Batocera reçus via MQTT ou Webhook. |
+
+### Moteur : `graph` (Graphique du flux de données)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/graph/ac` | Topic MQTT complet sur lequel le graphique est publié (via le flux `data_mqtt`). |
+| `show_header` | `bool` | `true` | Ligne de titre (gauche) et de résumé (droite) au-dessus du graphique. |
+
+Trace un graphique en barres/aires à partir d'un message JSON (version 1) :
+
+```json
+{
+  "v": 1,
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+- Les données sont **alignées à droite** : le dernier point est le plus récent et occupe la colonne la plus à droite ; une série plus courte laisse la gauche vide. `slots` vaut par défaut la longueur de la série la plus longue. Jusqu'à 4 séries de 288 points ; un point non numérique compte pour 0.
+- `max` : haut de l'échelle ; absent ou `<= 0` = automatique (colonne empilée la plus haute). `stack: true` empile les séries de bas en haut dans l'ordre ; `false` les superpose (la suivante par-dessus).
+- `bands` : plages de colonnes en fond, en indices de slot `[from, to)`, par ex. les heures pleines du fournisseur d'électricité. `marks` : lignes verticales pointillées au bord gauche d'un slot, par ex. minuit. Couleurs en `#RRGGBB`.
+- Les colonnes correspondent aux slots par `slot = x * slots / largeur`. 128x32 : en-tête lignes 0-6, graphique lignes 8-31. 256x64 : en-tête en taille double, graphique lignes 15-63 avec une ligne de repère discrète à mi-échelle. Avant le premier message, l'écran affiche `NO DATA`.
+
+Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 valeurs glissantes de 15 min) :
+
+```yaml
+# Home Assistant automation: publish a retained graph every 15 minutes
+- alias: "ArcadeMatrix - publish AC history"
+  triggers:
+    - trigger: time_pattern
+      minutes: "/15"
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: arcadematrix/graph/ac
+        retain: true
+        payload: >-
+          {{ {"v": 1, "title": "AC 24H", "summary": "12.3kWh", "unit": "kW",
+              "slots": 96, "max": 6, "stack": true,
+              "series": [{"label": "UP", "color": "#2080FF",
+                          "data": state_attr('sensor.ac_history', 'up')},
+                         {"label": "DN", "color": "#00D0A0",
+                          "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
+```
 
 ---
 
