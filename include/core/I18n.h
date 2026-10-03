@@ -25,6 +25,10 @@ public:
     static String getWeatherCondition(const String& raw, Lang l);
     /// Unabbreviated condition ("Partly Cloudy", "Thunderstorm") for panels wide enough to show it.
     static String getWeatherConditionLong(const String& raw, Lang l);
+    /// Label for a Home Assistant weather condition group (feed::conditionGroup(): 0 Clear, 1 Sunny,
+    /// 2 Partly cloudy, 3 Cloudy, 4 Fog, 5 Unusual, 6 Rain, 7 Heavy rain, 8 Storm, 9 Storm + rain,
+    /// 10 Snow, 11 Sleet, 12 Hail, 13 Windy). "" for an unknown group (the caller shows the raw id).
+    static const char* getHaConditionLabel(int group, bool longForm, Lang l);
     static const char* getOutdoorLabel(Lang l);
     static const char* getIndoorLabel(Lang l);
     static const char* getClimateLabel(Lang l);

@@ -13,13 +13,13 @@ DataFeed dataFeed;
 DataFeed* DataFeed::s_instance = nullptr;
 
 namespace {
-// Scratch for parsing graph payloads in place; PSRAM, allocated with the slot storage.
+// Scratch for parsing payloads in place; PSRAM, allocated with the slot storage.
 char* s_parseBuf = nullptr;
 SpiRamJsonDocument* s_doc = nullptr;
-// Room for an 8 KB packet, so a payload over MAX_PAYLOAD still arrives and can be reported
+// Room for a 12 KB packet, so a payload over MAX_PAYLOAD still arrives and can be reported
 // instead of being dropped silently by the client library. Above the PSRAM malloc threshold, so
 // the library's buffer is placed in PSRAM rather than internal DRAM.
-constexpr uint16_t kPacketBuffer = 8192;
+constexpr uint16_t kPacketBuffer = 12288;
 constexpr uint32_t kBackoffStartMs = 5000;
 constexpr uint32_t kBackoffMaxMs = 60000;
 
@@ -55,13 +55,16 @@ bool DataFeed::allocateStorage() {
     m_allocFailed = true;   // one attempt only, so a failure cannot leak on every retry
     const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     for (auto& s : m_slots) {
-        s.raw = (char*)heap_caps_malloc(MAX_PAYLOAD + 1, caps);
         s.graphs = (graph::GraphData*)heap_caps_calloc(2, sizeof(graph::GraphData), caps);
-        if (!s.raw || !s.graphs) return false;
-        s.raw[0] = '\0';
+        s.values = (feed::ValuesData*)heap_caps_calloc(2, sizeof(feed::ValuesData), caps);
+        s.weather = (feed::WeatherFeed*)heap_caps_calloc(2, sizeof(feed::WeatherFeed), caps);
+        if (!s.graphs || !s.values || !s.weather) return false;
+        s.kinds[0].store(0, std::memory_order_relaxed);
+        s.kinds[1].store(0, std::memory_order_relaxed);
     }
     s_parseBuf = (char*)heap_caps_malloc(MAX_PAYLOAD + 1, caps);
-    s_doc = new SpiRamJsonDocument(32768);
+    // ~1,200 numbers fill an 8 KB payload; 48 KB of pool covers that with room for the strings.
+    s_doc = new SpiRamJsonDocument(49152);
     if (!s_parseBuf || !s_doc || s_doc->capacity() == 0) return false;
     m_allocFailed = false;
     m_storageReady = true;
@@ -76,26 +79,47 @@ int DataFeed::findTopic(const char* topic) const {
     return -1;
 }
 
-uint32_t DataFeed::graphSequence(int slot) const {
+uint32_t DataFeed::sequence(int slot) const {
     if (slot < 0 || slot >= MAX_TOPICS) return 0;
-    return m_slots[slot].graphSeq.load(std::memory_order_acquire);
+    return m_slots[slot].seq.load(std::memory_order_acquire);
 }
 
-bool DataFeed::copyGraph(int slot, graph::GraphData& out, uint32_t& seqOut) const {
+feed::Kind DataFeed::kindOf(int slot) const {
+    if (slot < 0 || slot >= MAX_TOPICS) return feed::Kind::None;
+    const Slot& s = m_slots[slot];
+    if (s.seq.load(std::memory_order_acquire) == 0) return feed::Kind::None;
+    return (feed::Kind)s.kinds[s.idx.load(std::memory_order_acquire)].load(std::memory_order_acquire);
+}
+
+template <typename T>
+bool DataFeed::copyKind(int slot, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const {
     if (slot < 0 || slot >= MAX_TOPICS) return false;
     const Slot& s = m_slots[slot];
     // Double buffer plus a sequence check, no lock: Core 0 only ever writes the buffer that is not
     // published, and bumps the sequence after each publication. If the sequence moved while we
     // copied, the writer may have reached the buffer we were reading, so the copy is discarded.
-    uint32_t before = s.graphSeq.load(std::memory_order_acquire);
-    if (before == 0 || !s.graphs) return false;
-    uint8_t idx = s.graphIdx.load(std::memory_order_acquire);
-    memcpy(&out, &s.graphs[idx], sizeof(graph::GraphData));
+    uint32_t before = s.seq.load(std::memory_order_acquire);
+    if (before == 0 || !(s.*arr)) return false;
+    uint8_t idx = s.idx.load(std::memory_order_acquire);
+    if (s.kinds[idx].load(std::memory_order_acquire) != (uint8_t)kind) return false;
+    memcpy(&out, &(s.*arr)[idx], sizeof(T));
     std::atomic_thread_fence(std::memory_order_acquire);
-    uint32_t after = s.graphSeq.load(std::memory_order_acquire);
+    uint32_t after = s.seq.load(std::memory_order_acquire);
     if (before != after) return false;
     seqOut = after;
     return true;
+}
+
+bool DataFeed::copyGraph(int slot, graph::GraphData& out, uint32_t& seqOut) const {
+    return copyKind(slot, feed::Kind::Graph, &Slot::graphs, out, seqOut);
+}
+
+bool DataFeed::copyValues(int slot, feed::ValuesData& out, uint32_t& seqOut) const {
+    return copyKind(slot, feed::Kind::Values, &Slot::values, out, seqOut);
+}
+
+bool DataFeed::copyWeather(int slot, feed::WeatherFeed& out, uint32_t& seqOut) const {
+    return copyKind(slot, feed::Kind::Weather, &Slot::weather, out, seqOut);
 }
 
 int DataFeed::claimSlot(const char* topic) {
@@ -134,21 +158,31 @@ void DataFeed::handleMessage(const char* topic, const uint8_t* payload, unsigned
         return;
     }
     Slot& s = m_slots[slot];
-    memcpy(s.raw, payload, length);
-    s.raw[length] = '\0';
-    s.rawLen = (uint16_t)length;
 
     // Parse into the buffer that is not published. The full fence keeps these writes behind the
-    // sequence bump of the previous publication, which is what copyGraph() relies on.
+    // sequence bump of the previous publication, which is what copyKind() relies on.
     memcpy(s_parseBuf, payload, length);
     s_parseBuf[length] = '\0';
-    const uint8_t next = s.graphIdx.load(std::memory_order_relaxed) ^ 1;
-    std::atomic_thread_fence(std::memory_order_seq_cst);
-    if (graph::parsePayload(s_parseBuf, *s_doc, s.graphs[next])) {
-        s.graphIdx.store(next, std::memory_order_release);
-        s.graphSeq.fetch_add(1, std::memory_order_acq_rel);
-        LOGD("DataFeed", "graph on %s: %u series, %u slots", topic, s.graphs[next].seriesCount, s.graphs[next].slots);
+    s_doc->clear();
+    if (deserializeJson(*s_doc, s_parseBuf) != DeserializationError::Ok) {
+        LOGD("DataFeed", "payload on %s is not JSON; ignored", topic);
+        return;
     }
+    const feed::Kind kind = feed::detectKind(*s_doc);
+    const uint8_t next = s.idx.load(std::memory_order_relaxed) ^ 1;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    bool ok = false;
+    switch (kind) {
+        case feed::Kind::Graph:   ok = graph::parseDocument(*s_doc, s.graphs[next]); break;
+        case feed::Kind::Values:  ok = feed::parseValues(*s_doc, s.values[next]); break;
+        case feed::Kind::Weather: ok = feed::parseWeather(*s_doc, s.weather[next]); break;
+        default: break;
+    }
+    if (!ok) return;
+    s.kinds[next].store((uint8_t)kind, std::memory_order_release);
+    s.idx.store(next, std::memory_order_release);
+    s.seq.fetch_add(1, std::memory_order_acq_rel);
+    LOGD("DataFeed", "payload kind %u on %s", (unsigned)kind, topic);
 }
 
 void DataFeed::taskEntry(void* arg) {

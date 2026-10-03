@@ -9,6 +9,8 @@
 
 
 #include "../api/OpenWeatherMapProvider.h"
+#include "../services/DataFeed.h"
+#include "../../include/core/I18n.h"
 
 WeatherEngine::WeatherEngine() : matrix(nullptr) {
     activeSlide = 0;
@@ -106,6 +108,19 @@ void WeatherEngine::onConfigChanged(const EngineConfig* engineConfig) {
         m_validData.store(false, std::memory_order_release);
         forceUpdate(); // Force fetch immediately with new settings
     }
+    // Home Assistant source: publish the topic through the spare buffer, then flip the source.
+    String topic = engineConfig->getString("topic", "arcadematrix/weather/local");
+    topic.trim();
+    const uint8_t spare = m_haTopicIdx.load(std::memory_order_relaxed) ^ 1;
+    strlcpy(m_haTopic[spare], topic.c_str(), sizeof(m_haTopic[spare]));
+    const bool topicChanged = strcmp(m_haTopic[spare], m_haTopic[spare ^ 1]) != 0;
+    m_haTopicIdx.store(spare, std::memory_order_release);
+    const bool ha = engineConfig->getString("source", "owm").equalsIgnoreCase("ha");
+    if (ha != m_haSource.load(std::memory_order_relaxed) || (ha && topicChanged)) {
+        m_validData.store(false, std::memory_order_release);   // never show the other source's data
+        m_haSource.store(ha, std::memory_order_release);
+        forceUpdate();
+    }
     config_offset_x = engineConfig->getInt("weather_offset_x", 0);
     config_offset_y = engineConfig->getInt("weather_offset_y", 0);
     requestRedraw();
@@ -161,7 +176,9 @@ void WeatherEngine::fetchTaskEntry(void* arg) {
     while (!self->m_stopFetch.load(std::memory_order_acquire)) {
         self->fetchOnce();
         // Sleep in slices so a stop request is picked up promptly instead of after a full wait.
-        for (int i = 0; i < 50 && !self->m_stopFetch.load(std::memory_order_acquire); i++) {
+        // The Home Assistant source only reads memory, so it is checked every second.
+        const int slices = self->m_haSource.load(std::memory_order_acquire) ? 10 : 50;
+        for (int i = 0; i < slices && !self->m_stopFetch.load(std::memory_order_acquire); i++) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
@@ -170,7 +187,87 @@ void WeatherEngine::fetchTaskEntry(void* arg) {
 }
 
 void WeatherEngine::fetchOnce() {
+    if (m_haSource.load(std::memory_order_acquire)) {
+        pollHaFeed();
+        return;
+    }
+    m_haSeenSeq = 0;   // so switching back to "ha" republishes the payload
     updateWeather(config_api_key, config_city, config_units);
+}
+
+bool WeatherEngine::useFahrenheit() const {
+    if (m_haSource.load(std::memory_order_acquire)) return m_haImperial.load(std::memory_order_acquire);
+    return config_units.equalsIgnoreCase("imperial") || config_units.equalsIgnoreCase("fahrenheit") ||
+           config_units.equalsIgnoreCase("f");
+}
+
+void WeatherEngine::pollHaFeed() {
+    const char* topic = m_haTopic[m_haTopicIdx.load(std::memory_order_acquire)];
+    const int slot = dataFeed.findTopic(topic);
+    if (slot < 0) {
+        strlcpy(g_fetchState.lastError, "waiting for ha payload", sizeof(g_fetchState.lastError));
+        return;
+    }
+    const uint32_t seq = dataFeed.sequence(slot);
+    if (seq == 0 || seq == m_haSeenSeq) return;
+    feed::WeatherFeed& wx = m_haScratch;   // per instance: two weather screens run two fetch tasks
+    uint32_t got = 0;
+    if (!dataFeed.copyWeather(slot, wx, got)) {
+        if (dataFeed.kindOf(slot) != feed::Kind::Weather) {
+            m_haSeenSeq = seq;
+            strlcpy(g_fetchState.lastError, "topic is not weather", sizeof(g_fetchState.lastError));
+        }
+        return;   // otherwise mid-publication: next poll
+    }
+    m_haSeenSeq = got;
+    g_lastAttemptMs = millis();
+
+    struct tm timeinfo;
+    const bool haveTime = getLocalTime(&timeinfo, 0);
+    const int wday0 = haveTime ? timeinfo.tm_wday : 0;
+    const Lang lang = I18n::getLang();
+
+    WeatherData fresh[MAX_FORECAST_DAYS];
+    int n = 0;
+    const int days = wx.dayCount > 0 ? wx.dayCount : (wx.hasCurrent ? 1 : 0);
+    for (int i = 0; i < days && n < MAX_FORECAST_DAYS; i++) {
+        WeatherData& d = fresh[n];
+        const feed::WeatherDay* day = i < wx.dayCount ? &wx.days[i] : nullptr;
+        // Today shows the live station reading; its range and condition come from the forecast.
+        const char* cond = (day && day->condition[0]) ? day->condition : (i == 0 ? wx.currentCondition : "");
+        if (i == 0 && day == nullptr) cond = wx.currentCondition;
+        float tMin = (day && day->hasTemps) ? day->tempMin : wx.currentTemp;
+        float tMax = (day && day->hasTemps) ? day->tempMax : wx.currentTemp;
+        d.temp = (i == 0 && wx.hasCurrent) ? wx.currentTemp : (tMin + tMax) * 0.5f;
+        d.temp_min = tMin;
+        d.temp_max = tMax;
+        d.iconCode = feed::iconForCondition(cond);
+        const int group = feed::conditionGroup(cond);
+        if (group < 0) {   // unknown condition: show it as received, like the RPi firmware
+            d.description = cond;
+            d.descriptionLong = cond;
+        } else {
+            d.description = I18n::getHaConditionLabel(group, false, lang);
+            d.descriptionLong = I18n::getHaConditionLabel(group, true, lang);
+        }
+        const int wday = (wday0 + i) % 7;
+        d.label = I18n::getWeatherDayLabel(wday, i == 0, i == 1);
+        d.labelLong = I18n::getWeatherDayLabelLong(wday, i == 0, i == 1, lang);
+        n++;
+    }
+    if (n == 0) return;
+
+    m_haImperial.store(wx.imperial, std::memory_order_release);
+    const uint8_t back = m_activeBuf.load(std::memory_order_relaxed) ^ 1;
+    for (int i = 0; i < n; i++) m_forecastBuf[back][i] = fresh[i];
+    m_forecastCount[back] = (uint8_t)n;
+    m_activeBuf.store(back, std::memory_order_release);
+    m_validData.store(true, std::memory_order_release);
+    m_newData.store(true, std::memory_order_release);
+    g_fetchState.valid = true;
+    g_fetchState.days = (uint8_t)n;
+    strlcpy(g_fetchState.lastError, "ok (home assistant)", sizeof(g_fetchState.lastError));
+    LOGI("WeatherEngine", "Home Assistant weather: %d day(s), %s", n, wx.imperial ? "imperial" : "metric");
 }
 
 void WeatherEngine::updateWeather(const String& apiKey, const String& city, const String& units) {
@@ -353,7 +450,7 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
     // Reset font to default GLCD font to avoid drawing from baseline
     matrix->setFont(nullptr);
     
-    char unitChar = (config_units.equalsIgnoreCase("imperial") || config_units.equalsIgnoreCase("fahrenheit") || config_units.equalsIgnoreCase("f")) ? 'F' : 'C';
+    char unitChar = useFahrenheit() ? 'F' : 'C';
     char tempMinStr[16];
     char tempMaxStr[16];
     sprintf(tempMinStr, "%.0f%c", data.temp_min, unitChar);
@@ -602,10 +699,13 @@ EngineDescriptor WeatherEngineDescriptorHandler::getDescriptor() const {
     desc_weather.requirements.needsAudio = false;
     desc_weather.requirements.needsNetwork = true;
     desc_weather.schema.fields = {
-        ConfigField("api_key", ConfigType::STRING, "API Key", "OpenWeatherMap API Key", "", false, "", "", "", "", "", false, "", ValidationPolicy::Accept),
-        ConfigField("city", ConfigType::STRING, "City", "City (e.g. Paris,FR or for US: Tucson,AZ,US)", "Paris,FR", true, "", "", "", "", "", false, "", ValidationPolicy::Accept),
-        ConfigField("units", ConfigType::ENUM, "Units", "Temperature unit (°C or °F)", "system", false, "", "", "", "system:System (General),metric:Celsius (°C),imperial:Fahrenheit (°F)", "", false, "", ValidationPolicy::FallbackDefault),
-        ConfigField("lang", ConfigType::ENUM, "Language", "Weather description language", "system", false, "", "", "", "system:System (General),en:English,fr:Français,es:Español,de:Deutsch,it:Italiano", "", false, "", ValidationPolicy::FallbackDefault),
+        ConfigField("source", ConfigType::ENUM, "Source", "Where the forecast comes from", "owm", false, "", "", "", "owm:OpenWeatherMap,ha:Home Assistant (MQTT)", "", false, "", ValidationPolicy::FallbackDefault),
+        ConfigField("topic", ConfigType::STRING, "MQTT Topic", "Topic Home Assistant publishes the weather on (Data Feed MQTT)", "arcadematrix/weather/local", false, "", "", "", "", "", false, "source=ha", ValidationPolicy::Accept),
+        // OpenWeatherMap only: hidden for the Home Assistant source, whose payload carries its units.
+        ConfigField("api_key", ConfigType::STRING, "API Key", "OpenWeatherMap API Key", "", false, "", "", "", "", "", false, "source!=ha", ValidationPolicy::Accept),
+        ConfigField("city", ConfigType::STRING, "City", "City (e.g. Paris,FR or for US: Tucson,AZ,US)", "Paris,FR", false, "", "", "", "", "", false, "source!=ha", ValidationPolicy::Accept),
+        ConfigField("units", ConfigType::ENUM, "Units", "Temperature unit (°C or °F)", "system", false, "", "", "", "system:System (General),metric:Celsius (°C),imperial:Fahrenheit (°F)", "", false, "source!=ha", ValidationPolicy::FallbackDefault),
+        ConfigField("lang", ConfigType::ENUM, "Language", "Weather description language", "system", false, "", "", "", "system:System (General),en:English,fr:Français,es:Español,de:Deutsch,it:Italiano", "", false, "source!=ha", ValidationPolicy::FallbackDefault),
         ConfigField("weather_offset_x", ConfigType::INTEGER, "Offset X", "Horizontal pixel shift", "0", false, "-64", "64", "1", "", "", false, "", ValidationPolicy::Clamp),
         ConfigField("weather_offset_y", ConfigType::INTEGER, "Offset Y", "Vertical pixel shift", "0", false, "-32", "32", "1", "", "", false, "", ValidationPolicy::Clamp)
     };

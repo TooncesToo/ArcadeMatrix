@@ -4,6 +4,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "../engines/graph/GraphPayload.h"
+#include "../engines/graph/FeedPayloads.h"
 
 /**
  * Data feed: a second MQTT connection, separate from the arcade Frontend Sync one, that only
@@ -15,14 +16,15 @@
  * change made in the web UI applies without a reboot.
  *
  * The client subscribes to `<topic_prefix>/#` and keeps the last payload of up to MAX_TOPICS topics
- * (retained messages refill them after every reconnect). A payload that is a graph is also parsed
- * into a double buffer that Core 1 copies lock-free (see copyGraph()). Storage lives in PSRAM and is
- * allocated once, the first time the feed is enabled; boards without PSRAM do not run the feed.
+ * (retained messages refill them after every reconnect), parsed by kind - graph, values or weather
+ * (feed::detectKind) - into a per-topic double buffer that readers copy lock-free (copyGraph(),
+ * copyValues(), copyWeather()). Storage lives in PSRAM and is allocated once, the first time the
+ * feed is enabled; boards without PSRAM do not run the feed.
  */
 class DataFeed {
 public:
     static constexpr uint8_t MAX_TOPICS = 8;
-    static constexpr size_t MAX_PAYLOAD = 4096;
+    static constexpr size_t MAX_PAYLOAD = 8192;
     static constexpr size_t MAX_TOPIC_LEN = 96;
 
     DataFeed() = default;
@@ -38,25 +40,35 @@ public:
     /// Slot holding `topic`, or -1. Lock-free; safe on Core 1.
     int findTopic(const char* topic) const;
 
-    /// Graph publication counter for a slot (0 = no graph received yet). Lock-free.
-    uint32_t graphSequence(int slot) const;
+    /// Publication counter for a slot (0 = nothing parsed yet). Lock-free.
+    uint32_t sequence(int slot) const;
+
+    /// Kind of the slot's latest payload (Kind::None before the first one). Lock-free.
+    feed::Kind kindOf(int slot) const;
 
     /**
-     * Copies the slot's latest graph into `out`. Lock-free: returns false (and `out` must be
-     * ignored) if a new graph was published while copying; try again on a later frame.
+     * Copy the slot's latest payload of that kind into `out`. Lock-free: false when the slot holds
+     * another kind, nothing yet, or a new payload was published while copying (then `out` must be
+     * ignored; try again on a later frame).
      */
     bool copyGraph(int slot, graph::GraphData& out, uint32_t& seqOut) const;
+    bool copyValues(int slot, feed::ValuesData& out, uint32_t& seqOut) const;
+    bool copyWeather(int slot, feed::WeatherFeed& out, uint32_t& seqOut) const;
 
 private:
     struct Slot {
         std::atomic<uint8_t> ready{0};          ///< topic[] is set and stable
         char topic[MAX_TOPIC_LEN];
-        char* raw = nullptr;                    ///< last payload, NUL-terminated (Core 0 only)
-        uint16_t rawLen = 0;
-        graph::GraphData* graphs = nullptr;     ///< [2], double buffer
-        std::atomic<uint8_t> graphIdx{0};
-        std::atomic<uint32_t> graphSeq{0};
+        graph::GraphData* graphs = nullptr;     ///< [2], double buffers per kind
+        feed::ValuesData* values = nullptr;
+        feed::WeatherFeed* weather = nullptr;
+        std::atomic<uint8_t> kinds[2];          ///< feed::Kind held by each buffer index
+        std::atomic<uint8_t> idx{0};            ///< published buffer index
+        std::atomic<uint32_t> seq{0};
     };
+
+    template <typename T>
+    bool copyKind(int slot, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const;
 
     Slot m_slots[MAX_TOPICS];
     std::atomic<bool> m_connected{false};

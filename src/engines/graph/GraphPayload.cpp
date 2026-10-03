@@ -13,17 +13,13 @@ int hexNibble(char c) {
     return -1;
 }
 
-void copyText(char* dst, size_t cap, const char* src) {
-    if (!src) src = "";
-    strncpy(dst, src, cap - 1);
-    dst[cap - 1] = '\0';
-}
-
 uint16_t clampIndex(long v, uint16_t limit) {
     if (v < 0) return 0;
     if (v > (long)limit) return limit;
     return (uint16_t)v;
 }
+
+bool isGap(float v) { return isnan(v) || isinf(v); }
 
 }  // namespace
 
@@ -42,18 +38,48 @@ bool parseHexColor(const char* s, Rgb& out) {
     return true;
 }
 
+void copyPanelText(char* dst, size_t cap, const char* src) {
+    if (!dst || cap == 0) return;
+    size_t n = 0;
+    const unsigned char* p = (const unsigned char*)(src ? src : "");
+    while (*p && n + 1 < cap) {
+        if (*p < 0x80) {
+            dst[n++] = (char)*p++;
+        } else if (p[0] == 0xC2 && p[1] == 0xB0) {
+            dst[n++] = DEGREE;
+            p += 2;
+        } else {
+            // Skip the whole multi-byte sequence and show one placeholder for it.
+            int len = (*p >= 0xF0) ? 4 : (*p >= 0xE0) ? 3 : (*p >= 0xC0) ? 2 : 1;
+            for (int i = 0; i < len && *p; i++) p++;
+            dst[n++] = '?';
+        }
+    }
+    dst[n] = '\0';
+}
+
 bool parsePayload(char* json, JsonDocument& doc, GraphData& out) {
     out.valid = false;
     doc.clear();
     if (!json || deserializeJson(doc, json) != DeserializationError::Ok) return false;
+    return parseDocument(doc, out);
+}
+
+bool parseDocument(const JsonDocument& doc, GraphData& out) {
+    out.valid = false;
     JsonArrayConst series = doc["series"].as<JsonArrayConst>();
     if (series.isNull()) return false;
 
-    copyText(out.title, sizeof(out.title), doc["title"] | "");
-    copyText(out.summary, sizeof(out.summary), doc["summary"] | "");
-    copyText(out.unit, sizeof(out.unit), doc["unit"] | "");
-    out.max = doc["max"] | 0.0f;
+    copyPanelText(out.title, sizeof(out.title), doc["title"] | "");
+    copyPanelText(out.summary, sizeof(out.summary), doc["summary"] | "");
+    copyPanelText(out.unit, sizeof(out.unit), doc["unit"] | "");
+    out.hasMin = doc["min"].is<float>();
+    out.min = out.hasMin ? doc["min"].as<float>() : 0.0f;
+    out.max = doc["max"].is<float>() ? doc["max"].as<float>() : 0.0f;
+    if (isGap(out.min)) { out.min = 0.0f; out.hasMin = false; }
+    if (isGap(out.max)) out.max = 0.0f;
     out.stack = doc["stack"] | true;
+    out.yaxis = doc["yaxis"] | false;
 
     static const Rgb kDefaultColors[MAX_SERIES] = {
         {0x20, 0x80, 0xFF}, {0x00, 0xD0, 0xA0}, {0xFF, 0xA0, 0x20}, {0xE0, 0x40, 0xE0}};
@@ -63,9 +89,11 @@ bool parsePayload(char* json, JsonDocument& doc, GraphData& out) {
     for (JsonObjectConst s : series) {
         if (out.seriesCount >= MAX_SERIES) break;
         Series& dst = out.series[out.seriesCount];
-        copyText(dst.label, sizeof(dst.label), s["label"] | "");
+        copyPanelText(dst.label, sizeof(dst.label), s["label"] | "");
         dst.color = kDefaultColors[out.seriesCount];
         parseHexColor(s["color"] | "", dst.color);
+        const char* style = s["style"] | "bar";
+        dst.line = strcmp(style, "line") == 0;
         dst.count = 0;
         JsonArrayConst data = s["data"].as<JsonArrayConst>();
         // Keep the newest MAX_POINTS when a series is longer than we can hold.
@@ -74,8 +102,8 @@ bool parsePayload(char* json, JsonDocument& doc, GraphData& out) {
         size_t i = 0;
         for (JsonVariantConst p : data) {
             if (i++ < skip) continue;
-            float v = p.is<float>() ? p.as<float>() : 0.0f;
-            if (isnan(v) || isinf(v)) v = 0.0f;
+            float v = p.is<float>() ? p.as<float>() : NAN;
+            if (isinf(v)) v = NAN;
             dst.data[dst.count++] = v;
         }
         if (dst.count > longest) longest = dst.count;
@@ -94,7 +122,7 @@ bool parsePayload(char* json, JsonDocument& doc, GraphData& out) {
         dst.from = clampIndex(b["from"] | 0L, out.slots);
         dst.to = clampIndex(b["to"] | 0L, out.slots);
         if (dst.to <= dst.from) continue;
-        dst.color = {0x30, 0x18, 0x00};
+        dst.color = {0x50, 0x28, 0x00};
         parseHexColor(b["color"] | "", dst.color);
         out.bandCount++;
     }
@@ -115,36 +143,99 @@ bool parsePayload(char* json, JsonDocument& doc, GraphData& out) {
     return true;
 }
 
-float valueAt(const GraphData& g, uint8_t series, uint16_t slot) {
-    if (series >= g.seriesCount || slot >= g.slots) return 0.0f;
+float pointAt(const GraphData& g, uint8_t series, uint16_t slot) {
+    if (series >= g.seriesCount || slot >= g.slots) return NAN;
     const Series& s = g.series[series];
     // Right alignment: the last point sits in the last slot; a shorter series leaves the left empty.
     int idx = (int)s.count - (int)g.slots + (int)slot;
-    if (idx < 0 || idx >= (int)s.count) return 0.0f;
-    float v = s.data[idx];
-    return v > 0.0f ? v : 0.0f;
+    if (idx < 0 || idx >= (int)s.count) return NAN;
+    return s.data[idx];
 }
 
-float scaleMax(const GraphData& g) {
-    if (g.max > 0.0f) return g.max;
-    float top = 0.0f;
+float valueAt(const GraphData& g, uint8_t series, uint16_t slot) {
+    float v = pointAt(g, series, slot);
+    return isGap(v) ? 0.0f : v;
+}
+
+bool hasBars(const GraphData& g) {
+    for (uint8_t s = 0; s < g.seriesCount; s++) if (!g.series[s].line) return true;
+    return false;
+}
+
+bool hasLines(const GraphData& g) {
+    for (uint8_t s = 0; s < g.seriesCount; s++) if (g.series[s].line) return true;
+    return false;
+}
+
+Range yRange(const GraphData& g) {
+    if (g.max > g.min) return {g.min, g.max};
+
+    const bool bars = hasBars(g);
+    const bool lines = hasLines(g);
+    bool any = false;
+    float lo = 0.0f, hi = 0.0f;
+    auto take = [&](float v) {
+        if (!any) { lo = hi = v; any = true; return; }
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+    };
     for (uint16_t slot = 0; slot < g.slots; slot++) {
-        float col = 0.0f;
+        float pos = 0.0f, neg = 0.0f;
         for (uint8_t s = 0; s < g.seriesCount; s++) {
+            if (g.series[s].line) {
+                float v = pointAt(g, s, slot);
+                if (!isGap(v)) take(v);
+                continue;
+            }
             float v = valueAt(g, s, slot);
-            if (g.stack) col += v;
-            else if (v > col) col = v;
+            if (g.stack) {
+                if (v >= 0.0f) pos += v; else neg += v;
+            } else {
+                take(v);
+            }
         }
-        if (col > top) top = col;
+        if (bars && g.stack) { take(pos); take(neg); }
     }
-    return top > 0.001f ? top : 0.001f;
+    if (bars) take(0.0f);   // bars grow from the zero line, so it is always in range
+
+    Range r;
+    if (!any) {
+        float lo0 = g.hasMin ? g.min : 0.0f;
+        return {lo0, lo0 + 1.0f};
+    } else if (lines) {
+        float pad = (hi - lo) * 0.05f;
+        if (pad < 0.5f) pad = 0.5f;
+        r = {lo - pad, hi + pad};
+    } else {
+        r = {lo, hi};
+    }
+    if (g.hasMin) r.lo = g.min;
+    if (r.hi - r.lo < 0.001f) r.hi = r.lo + 0.001f;
+    return r;
 }
 
-int barHeight(float value, float top, int height) {
-    if (value <= 0.0f || top <= 0.0f || height <= 0) return 0;
-    int h = (int)lroundf(value / top * (float)height);
+int heightFor(float value, const Range& r, int height) {
+    if (height <= 0 || isGap(value)) return 0;
+    float span = r.hi - r.lo;
+    if (span <= 0.0f) return 0;
+    int h = (int)lroundf((value - r.lo) / span * (float)height);
+    if (h < 0) h = 0;
     if (h > height) h = height;
-    return h < 0 ? 0 : h;
+    return h;
+}
+
+int lineOffsetFor(float value, const Range& r, int height) {
+    if (height <= 1 || isGap(value)) return 0;
+    float span = r.hi - r.lo;
+    if (span <= 0.0f) return 0;
+    int o = (int)lroundf((value - r.lo) / span * (float)(height - 1));
+    if (o < 0) o = 0;
+    if (o > height - 1) o = height - 1;
+    return o;
+}
+
+bool zeroLineVisible(const GraphData& g, const Range& r) {
+    return hasBars(g) && r.lo < 0.0f && r.hi > 0.0f;
 }
 
 Layout calculateLayout(int width, int height, bool showHeader) {

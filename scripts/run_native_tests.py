@@ -40,6 +40,7 @@ def main():
         os.path.join(PROJECT_ROOT, "src", "core", "DisplayArbiter.cpp"),
         os.path.join(PROJECT_ROOT, "src", "core", "EngineRegistry.cpp"),
         os.path.join(PROJECT_ROOT, "src", "engines", "graph", "GraphPayload.cpp"),
+        os.path.join(PROJECT_ROOT, "src", "engines", "graph", "FeedPayloads.cpp"),
         os.path.join(PROJECT_ROOT, "test", "native", "test_native_core.cpp"),
     ]
 

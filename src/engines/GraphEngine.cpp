@@ -1,7 +1,9 @@
 #include "GraphEngine.h"
 #include <esp_heap_caps.h>
+#include <math.h>
 #include "../services/DataFeed.h"
 #include "../core/Logger.h"
+#include "graph/PanelText.h"
 
 GraphEngine::~GraphEngine() {
     if (m_data) heap_caps_free(m_data);
@@ -45,8 +47,13 @@ void GraphEngine::pollFeed() {
         m_slot = dataFeed.findTopic(m_topic);
     }
     if (m_slot < 0) return;
-    uint32_t seq = dataFeed.graphSequence(m_slot);
+    uint32_t seq = dataFeed.sequence(m_slot);
     if (seq == 0 || seq == m_seenSeq) return;
+    if (dataFeed.kindOf(m_slot) != feed::Kind::Graph) {   // the topic now carries something else
+        m_seenSeq = seq;
+        if (m_haveData) { m_haveData = false; requestRedraw(); }
+        return;
+    }
     uint32_t got = 0;
     if (dataFeed.copyGraph(m_slot, *m_data, got)) {   // false = mid-publication, retry next frame
         m_seenSeq = got;
@@ -68,45 +75,22 @@ void GraphEngine::update(EngineContext* context) {
 }
 
 void GraphEngine::drawNoData() {
-    const char* msg = "NO DATA";
-    m_matrix->setFont(nullptr);
-    m_matrix->setTextSize(1);
-    m_matrix->setTextWrap(false);
-    m_matrix->setTextColor(m_matrix->color565(120, 120, 120));
-    int16_t bx, by;
-    uint16_t bw, bh;
-    m_matrix->getTextBounds(msg, 0, 0, &bx, &by, &bw, &bh);
-    m_matrix->setCursor((m_matrix->width() - (int)bw) / 2 - bx, (m_matrix->height() - (int)bh) / 2 - by);
-    m_matrix->print(msg);
+    panel_text::drawNoData(m_matrix);
 }
 
 void GraphEngine::drawHeader(const graph::Layout& layout) {
     const graph::GraphData& g = *m_data;
     const int size = layout.textSize;
-    const int charW = 6 * size;
-    m_matrix->setFont(nullptr);
-    m_matrix->setTextSize(size);
-    m_matrix->setTextWrap(false);
-
-    // Summary right-aligned in the first series' colour, then as much of the title as fits.
-    int summaryW = 0;
-    size_t summaryLen = strlen(g.summary);
-    if (summaryLen) {
-        summaryW = (int)summaryLen * charW - size;   // no trailing column after the last glyph
+    // Title in white, clipped one scale unit before the summary, which is right-aligned with its
+    // last pixel on the last column in the first series' colour (title first: the clip blanks overflow).
+    const int summaryW = panel_text::width(g.summary, size);
+    const int summaryX = layout.title.w - summaryW;
+    const int clip = summaryW ? summaryX - size : layout.title.w;
+    panel_text::print(m_matrix, layout.title.x, layout.title.y, g.title, size, m_matrix->color565(255, 255, 255), clip);
+    if (summaryW) {
         uint16_t c = g.seriesCount ? color(g.series[0].color) : m_matrix->color565(255, 255, 255);
-        m_matrix->setTextColor(c);
-        m_matrix->setCursor(layout.title.w - summaryW, layout.title.y);
-        m_matrix->print(g.summary);
+        panel_text::print(m_matrix, summaryX, layout.title.y, g.summary, size, c);
     }
-    int room = layout.title.w - (summaryW ? summaryW + charW : 0);
-    int maxChars = room > 0 ? room / charW : 0;
-    char title[sizeof(g.title)];
-    strncpy(title, g.title, sizeof(title) - 1);
-    title[sizeof(title) - 1] = '\0';
-    if ((int)strlen(title) > maxChars) title[maxChars < 0 ? 0 : maxChars] = '\0';
-    m_matrix->setTextColor(m_matrix->color565(255, 255, 255));
-    m_matrix->setCursor(layout.title.x, layout.title.y);
-    m_matrix->print(title);
 }
 
 void GraphEngine::drawGraph() {
@@ -114,10 +98,29 @@ void GraphEngine::drawGraph() {
     const graph::Layout layout = graph::calculateLayout(m_matrix->width(), m_matrix->height(), m_showHeader);
     if (layout.header) drawHeader(layout);
 
-    const int px = layout.plot.x, py = layout.plot.y, pw = layout.plot.w, ph = layout.plot.h;
+    int px = layout.plot.x, pw = layout.plot.w;
+    const int py = layout.plot.y, ph = layout.plot.h;
     if (pw <= 0 || ph <= 0 || g.slots == 0) return;
     const int base = py + ph - 1;
-    const float top = graph::scaleMax(g);
+    const graph::Range range = graph::yRange(g);
+    auto ly = [&](float v) { return base - graph::lineOffsetFor(v, range, ph); };
+
+    // 0. Y-axis labels (tall panels only): range ends as integers in the tiny font, right-aligned
+    // against the plot, which then starts one column after them.
+    if (g.yaxis && m_matrix->height() >= 64) {
+        char lmax[12], lmin[12];
+        snprintf(lmax, sizeof(lmax), "%ld", lroundf(range.hi));
+        snprintf(lmin, sizeof(lmin), "%ld", lroundf(range.lo));
+        const int wmax = panel_text::width(lmax, panel_text::TINY);
+        const int wmin = panel_text::width(lmin, panel_text::TINY);
+        const int lw = wmax > wmin ? wmax : wmin;
+        const uint16_t grey = m_matrix->color565(0x70, 0x70, 0x70);
+        panel_text::print(m_matrix, lw - wmax, py, lmax, panel_text::TINY, grey);
+        panel_text::print(m_matrix, lw - wmin, m_matrix->height() - 5, lmin, panel_text::TINY, grey);
+        px = lw + 1;
+        pw = m_matrix->width() - px;
+        if (pw <= 0) return;
+    }
 
     // 1. Bands: full-height background over their slot range.
     for (uint8_t i = 0; i < g.bandCount; i++) {
@@ -125,30 +128,57 @@ void GraphEngine::drawGraph() {
         int x1 = graph::columnForSlot(g.bands[i].to, pw, g.slots);
         if (x1 > x0) m_matrix->fillRect(px + x0, py, x1 - x0, ph, color(g.bands[i].color));
     }
-    // 2. Half-scale gridline on the tall panels.
-    if (layout.gridline) {
-        int y = base - graph::barHeight(top * 0.5f, top, ph) + 1;
-        m_matrix->drawFastHLine(px, y, pw, m_matrix->color565(0x20, 0x20, 0x20));
+    // 2. Zero line, when bars straddle it.
+    if (graph::zeroLineVisible(g, range)) {
+        m_matrix->drawFastHLine(px, ly(0.0f), pw, m_matrix->color565(0x30, 0x30, 0x30));
     }
-    // 3. Marks: dotted vertical lines at the left edge of their slot.
+    // 3. Mid-range gridline on the tall panels.
+    if (layout.gridline) {
+        m_matrix->drawFastHLine(px, ly((range.lo + range.hi) * 0.5f), pw, m_matrix->color565(0x20, 0x20, 0x20));
+    }
+    // 4. Marks: dotted vertical lines at the left edge of their slot.
     for (uint8_t i = 0; i < g.markCount; i++) {
         int x = px + graph::columnForSlot(g.marks[i].at, pw, g.slots);
         uint16_t c = color(g.marks[i].color);
         for (int y = py; y <= base; y += 2) m_matrix->drawPixel(x, y, c);
     }
-    // 4. Bars: one column per x, stacked bottom-up in series order (or overlaid, later on top).
     uint16_t seriesColor[graph::MAX_SERIES];
     for (uint8_t s = 0; s < g.seriesCount; s++) seriesColor[s] = color(g.series[s].color);
+
+    // 5. Bars from the zero line: stacked (positive and negative stacks apart) or overlaid.
     for (int x = 0; x < pw; x++) {
         uint16_t slot = graph::slotForColumn(x, pw, g.slots);
-        float cum = 0.0f;
+        float pos = 0.0f, neg = 0.0f;
         for (uint8_t s = 0; s < g.seriesCount; s++) {
+            if (g.series[s].line) continue;
             float v = graph::valueAt(g, s, slot);
-            if (v <= 0.0f) continue;
-            int lo = g.stack ? graph::barHeight(cum, top, ph) : 0;
-            int hi = graph::barHeight(g.stack ? cum + v : v, top, ph);
-            if (g.stack) cum += v;
+            if (v == 0.0f) continue;
+            float from = 0.0f;
+            if (g.stack) {
+                if (v > 0.0f) { from = pos; pos += v; } else { from = neg; neg += v; }
+            }
+            int h0 = graph::heightFor(from, range, ph);
+            int h1 = graph::heightFor(from + v, range, ph);
+            int lo = h0 < h1 ? h0 : h1, hi = h0 < h1 ? h1 : h0;
             if (hi > lo) m_matrix->drawFastVLine(px + x, base - hi + 1, hi - lo, seriesColor[s]);
+        }
+    }
+    // 6. Lines: 1 px, in series order (later on top), vertical runs between columns (step look),
+    // no pixel and no join at a gap.
+    for (uint8_t s = 0; s < g.seriesCount; s++) {
+        if (!g.series[s].line) continue;
+        int prevRow = -1;
+        for (int x = 0; x < pw; x++) {
+            float v = graph::pointAt(g, s, graph::slotForColumn(x, pw, g.slots));
+            if (isnan(v)) { prevRow = -1; continue; }
+            int row = ly(v);
+            if (prevRow < 0 || prevRow == row) {
+                m_matrix->drawPixel(px + x, row, seriesColor[s]);
+            } else {
+                int y0 = prevRow < row ? prevRow : row, y1 = prevRow < row ? row : prevRow;
+                m_matrix->drawFastVLine(px + x, y0, y1 - y0 + 1, seriesColor[s]);
+            }
+            prevRow = row;
         }
     }
 }
