@@ -10,6 +10,9 @@
  *        power, today's energy and the outdoor temperature published by Home Assistant. The values
  *        arrive preformatted; the sign never does arithmetic on them.
  *
+ * Tiles are stacked: label on top, value and unit under it, centred in each column or quarter. The
+ * full label is used when it fits, else `label_short`; values are never truncated.
+ *
  * Static screen, same rules as the graph: painted into both DMA buffers on new data, on activate()
  * and on resume() (preemption or slot transition), otherwise not presented.
  */
@@ -45,6 +48,8 @@ private:
     void requestRedraw() { m_redrawFrames = 2; }
     void pollFeed();
     void drawValues();
+    /// One stacked tile (label above, value + unit under it) centred in the inner box [ix, ix+iw).
+    void drawTile(const feed::Tile& t, int ix, int iw, int cellTop, int ch, bool large, const void* chain);
     void drawNoData();
 };
 

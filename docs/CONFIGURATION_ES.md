@@ -567,6 +567,7 @@ La versión 1 acepta además (todo opcional, los mensajes antiguos se ven igual)
 - `"style": "line"` por serie: línea de 1 px, `null` = hueco (sin unión), dibujada después de las barras. Las barras parten de la línea cero y los negativos bajan; `stack` solo afecta a barras (pilas positivas y negativas por separado). Aparece una línea cero tenue cuando 0 está dentro del rango y hay barras.
 - `"yaxis": true`: en paneles de al menos 64 px de alto, los extremos del rango se muestran como enteros (fuente 3x5) a la izquierda y el gráfico se desplaza a la derecha.
 - `°` en `title`/`summary` se dibuja como el signo de grado.
+- `title_short`: abreviatura opcional, usada solo si el `title` completo no cabe junto al resumen.
 
 Ejemplo de automatización de Home Assistant (los dos atributos guardan los 96 valores móviles de 15 min):
 
@@ -598,9 +599,9 @@ Ejemplo de automatización de Home Assistant (los dos atributos guardan los 96 v
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...hasta 4"]}
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...hasta 4"]}
 ```
-1 a 4 mosaicos; los valores son cadenas ya formateadas (el panel no calcula nada). 1 a 3 mosaicos en columnas, 4 en una cuadrícula 2x2 con la etiqueta a la izquierda y el valor alineado a la derecha. Se usa la fuente más grande que cabe; un valor demasiado ancho pierde primero su unidad y luego se recorta por el final.
+1 a 4 mosaicos; los valores son cadenas ya formateadas (el panel no calcula nada). 1 a 3 mosaicos en columnas, 4 en una cuadrícula 2x2; cada mosaico se apila (etiqueta arriba, valor y unidad debajo) y se centra. Se usa la fuente más grande que cabe. Se usa la `label` completa si cabe, si no la `label_short` opcional, luego una fuente menor y por último se recorta la etiqueta; un valor nunca se recorta (primero se quita su unidad).
 
 ---
 

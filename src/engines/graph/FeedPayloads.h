@@ -7,7 +7,7 @@
 /**
  * The other two data feed payloads besides the graph (see docs/CONFIGURATION.md):
  *
- *  - Values:  {"v":1,"title":"ENERGY","tiles":[{"label":"HOUSE","value":"2.8","unit":"kW",
+ *  - Values:  {"v":1,"title":"ENERGY","tiles":[{"label":"HOUSE","label_short":"HSE","value":"2.8","unit":"kW",
  *              "color":"#FFB000","label_color":"#808080"}, ... up to 4]}
  *  - Weather: {"v":1,"units":"imperial","current":{"temp":75,"condition":"clear-night","humidity":47,
  *              "wind":7,"wind_unit":"mph"},"days":[{"temp_max":89,"temp_min":70,"condition":"sunny",
@@ -25,7 +25,8 @@ Kind detectKind(const JsonDocument& doc);
 static constexpr uint8_t MAX_TILES = 4;
 
 struct Tile {
-    char label[12];
+    char label[16];
+    char labelShort[12];       ///< optional abbreviation, used when the full label does not fit
     char value[16];
     char unit[8];
     graph::Rgb color;          ///< value colour, default white

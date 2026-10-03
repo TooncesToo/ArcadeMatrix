@@ -565,6 +565,7 @@ La version 1 accepte aussi (tout est optionnel, les anciens messages s'affichent
 - `"style": "line"` par série : ligne de 1 px, `null` = trou (pas de jonction), tracée après les barres. Les barres partent de la ligne zéro, les valeurs négatives descendent ; `stack` ne concerne que les barres (piles positives et négatives séparées). Une ligne zéro discrète apparaît quand 0 est dans la plage et qu'il y a des barres.
 - `"yaxis": true` : sur les panneaux d'au moins 64 px de haut, les bornes de la plage s'affichent en entiers (police 3x5) à gauche et le graphique se décale à droite.
 - `°` dans `title`/`summary` s'affiche comme le signe degré.
+- `title_short` : abréviation optionnelle, utilisée seulement si le `title` complet ne tient pas à côté du résumé.
 
 Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 valeurs glissantes de 15 min) :
 
@@ -596,9 +597,9 @@ Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 v
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...jusqu'à 4"]}
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...jusqu'à 4"]}
 ```
-1 à 4 tuiles ; les valeurs sont des chaînes déjà formatées (le panneau ne calcule rien). 1 à 3 tuiles en colonnes, 4 en grille 2x2 avec le libellé à gauche et la valeur alignée à droite. La plus grande police qui tient est utilisée ; une valeur trop large perd d'abord son unité, puis est coupée par la fin.
+1 à 4 tuiles ; les valeurs sont des chaînes déjà formatées (le panneau ne calcule rien). 1 à 3 tuiles en colonnes, 4 en grille 2x2 ; chaque tuile est empilée (libellé en haut, valeur et unité dessous) et centrée. La plus grande police qui tient est utilisée. Le `label` complet est utilisé s'il tient, sinon le `label_short` optionnel, puis une police plus petite, puis le libellé est coupé ; une valeur n'est jamais coupée (son unité disparaît d'abord).
 
 ---
 

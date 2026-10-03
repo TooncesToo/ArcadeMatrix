@@ -42,6 +42,7 @@ struct Mark { uint16_t at; Rgb color; };
 struct GraphData {
     bool valid;
     char title[24];
+    char titleShort[24];       ///< optional abbreviation, used when the full title does not fit
     char summary[16];
     char unit[8];
     uint16_t slots;            ///< x positions; data is right-aligned into them
