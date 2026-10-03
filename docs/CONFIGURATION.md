@@ -567,6 +567,7 @@ Version 1 also accepts (all optional, older payloads render unchanged):
 - series `"style": "line"`: 1 px line, `null` = gap (no join across it), drawn after the bars. Bars grow from the zero line, so negative values go down; `stack` applies to bar series only (positive and negative stacks apart). A dim zero line shows when 0 is inside the range and bars exist.
 - `"yaxis": true`: on panels at least 64 px tall, the range ends are printed as integers in a 3x5 font at the left edge and the plot moves right.
 - `°` in `title`/`summary` is drawn as the degree sign.
+- `title_short`: optional abbreviation, used only when the full `title` does not fit next to the summary.
 
 Example Home Assistant automation (the two attributes hold the rolling 96 x 15 min values):
 
@@ -598,9 +599,9 @@ Example Home Assistant automation (the two attributes hold the rolling 96 x 15 m
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...up to 4"]}
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...up to 4"]}
 ```
-1-4 tiles; values are preformatted strings (the sign does no arithmetic). 1-3 tiles sit in columns, 4 in a 2x2 grid with the label left and the value right-aligned. The largest font that fits is used; a value too wide drops its unit first, then is cut from the end.
+1-4 tiles; values are preformatted strings (the sign does no arithmetic). 1-3 tiles sit in columns, 4 in a 2x2 grid; each tile is stacked (label on top, value and unit under it) and centred. The largest font that fits is used. The full `label` is used when it fits, else the optional `label_short`, then a smaller font, then the label is cut; a value is never cut (its unit is dropped first).
 
 ---
 

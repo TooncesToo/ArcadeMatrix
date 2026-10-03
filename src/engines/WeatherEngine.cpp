@@ -474,17 +474,20 @@ bool WeatherEngine::loop() {
 void WeatherEngine::drawForecast(const WeatherData& data) {
     // Reset font to default GLCD font to avoid drawing from baseline
     matrix->setFont(nullptr);
+    matrix->cp437(false);   // the degree byte below relies on it (another engine may have left it on)
     
     char unitChar = useFahrenheit() ? 'F' : 'C';
+    // "90°F": Adafruit GFX draws the built-in font's degree glyph (CP437 0xF8) for 0xF7 while CP437
+    // mode is off, which is the same bitmap the data feed screens and the RPi firmware use.
     char tempMinStr[16];
     char tempMaxStr[32];
     if (data.isNow) {
         // Live page: the station reading in white on the first row, humidity and wind in grey under it.
-        sprintf(tempMinStr, "%.0f%c", data.temp, unitChar);
+        sprintf(tempMinStr, "%.0f\xF7%c", data.temp, unitChar);
         strlcpy(tempMaxStr, data.nowLine2.c_str(), sizeof(tempMaxStr));
     } else {
-        sprintf(tempMinStr, "%.0f%c", data.temp_min, unitChar);
-        sprintf(tempMaxStr, "%.0f%c", data.temp_max, unitChar);
+        sprintf(tempMinStr, "%.0f\xF7%c", data.temp_min, unitChar);
+        sprintf(tempMaxStr, "%.0f\xF7%c", data.temp_max, unitChar);
     }
     
     int mw = matrix->width();

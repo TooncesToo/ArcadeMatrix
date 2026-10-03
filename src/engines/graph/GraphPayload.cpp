@@ -71,6 +71,7 @@ bool parseDocument(const JsonDocument& doc, GraphData& out) {
     if (series.isNull()) return false;
 
     copyPanelText(out.title, sizeof(out.title), doc["title"] | "");
+    copyPanelText(out.titleShort, sizeof(out.titleShort), doc["title_short"] | "");
     copyPanelText(out.summary, sizeof(out.summary), doc["summary"] | "");
     copyPanelText(out.unit, sizeof(out.unit), doc["unit"] | "");
     out.hasMin = doc["min"].is<float>();

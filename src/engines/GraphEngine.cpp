@@ -86,7 +86,14 @@ void GraphEngine::drawHeader(const graph::Layout& layout) {
     const int summaryW = panel_text::width(g.summary, size);
     const int summaryX = layout.title.w - summaryW;
     const int clip = summaryW ? summaryX - size : layout.title.w;
-    panel_text::print(m_matrix, layout.title.x, layout.title.y, g.title, size, m_matrix->color565(255, 255, 255), clip);
+    // The full title when it fits, else the short one, else the shorter of the two clipped at the edge.
+    const int room = clip - layout.title.x;
+    const char* title = g.title;
+    if (panel_text::width(g.title, size) > room) {
+        if (g.titleShort[0] && panel_text::width(g.titleShort, size) <= room) title = g.titleShort;
+        else if (g.titleShort[0] && strlen(g.titleShort) < strlen(g.title)) title = g.titleShort;
+    }
+    panel_text::print(m_matrix, layout.title.x, layout.title.y, title, size, m_matrix->color565(255, 255, 255), clip);
     if (summaryW) {
         uint16_t c = g.seriesCount ? color(g.series[0].color) : m_matrix->color565(255, 255, 255);
         panel_text::print(m_matrix, summaryX, layout.title.y, g.summary, size, c);

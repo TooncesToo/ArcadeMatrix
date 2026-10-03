@@ -50,6 +50,7 @@ bool parseValues(const JsonDocument& doc, ValuesData& out) {
         if (out.count >= MAX_TILES) break;
         Tile& dst = out.tiles[out.count];
         graph::copyPanelText(dst.label, sizeof(dst.label), t["label"] | "");
+        graph::copyPanelText(dst.labelShort, sizeof(dst.labelShort), t["label_short"] | "");
         // Values are preformatted strings, but accept a bare number too.
         char num[16];
         const char* value = t["value"] | "";

@@ -622,6 +622,13 @@ void test_feed_values_payload(void) {
     TEST_ASSERT_EQUAL_HEX8(0x30, v.tiles[1].labelColor.b);
     TEST_ASSERT_EQUAL((char)0xB0, v.tiles[1].unit[0]);
     TEST_ASSERT_EQUAL_STRING("3.5", v.tiles[2].value);       // bare number accepted
+    TEST_ASSERT_TRUE(parseDoc("{\"tiles\":[{\"label\":\"DOWNSTAIRS\",\"label_short\":\"DN\",\"value\":\"75\"}]}"));
+    TEST_ASSERT_TRUE(feed::parseValues(g_graphDoc, v));
+    TEST_ASSERT_EQUAL_STRING("DOWNSTAIRS", v.tiles[0].label);
+    TEST_ASSERT_EQUAL_STRING("DN", v.tiles[0].labelShort);
+    TEST_ASSERT_TRUE(parseGraph("{\"title\":\"DOWNSTAIRS COOL\",\"title_short\":\"DN COOL\",\"series\":[]}"));
+    TEST_ASSERT_EQUAL_STRING("DOWNSTAIRS COOL", g_graph.title);
+    TEST_ASSERT_EQUAL_STRING("DN COOL", g_graph.titleShort);
     TEST_ASSERT_EQUAL_HEX8(0xFF, v.tiles[3].color.r);       // default value colour white
 }
 
