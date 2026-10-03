@@ -447,6 +447,10 @@ void AppRuntime::initialize() {
     audioSessionManager.begin();
     audioSessionManager.update(snapshot);
 
+    // Data feed MQTT: a global, so it exists before this point. Its Core 0 task is only created once
+    // the feed is enabled (here or later from the web UI), so a sign that never uses it pays nothing.
+    if (snapshot.dataMqtt.enabled) dataFeed.begin();
+
     m_lastReconciledVersion = snapshot.version;
     evaluateDisplayRequests(snapshot);
 
@@ -634,6 +638,7 @@ void AppRuntime::update() {
     if (snapshot.version != m_lastReconciledVersion) {
         m_lastReconciledVersion = snapshot.version;
         syncMqtt(snapshot);
+        if (snapshot.dataMqtt.enabled) dataFeed.begin();   // no-op once the task exists
     }
     if (m_frontendListener) {
         m_frontendListener->loop();

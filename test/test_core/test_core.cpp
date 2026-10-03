@@ -365,6 +365,33 @@ void test_sanitizer_night_brightness_allows_zero(void) {
     TEST_ASSERT_TRUE(res.values_clamped >= 1);
 }
 
+/**
+ * @brief The data feed MQTT config round-trips through config.json and is normalised: an invalid
+ * port falls back to 1883 and the topic prefix loses trailing slashes and wildcards (the client
+ * appends "/#" itself).
+ */
+void test_data_mqtt_config_roundtrip_and_sanitize(void) {
+    ConfigLoader cfg;
+    TEST_ASSERT_FALSE(cfg.dataMqtt.enabled);
+    TEST_ASSERT_EQUAL_STRING("arcadematrix", cfg.dataMqtt.topicPrefix.c_str());
+
+    TEST_ASSERT_TRUE(cfg.parseFromJson("{\"data_mqtt\":{\"enabled\":true,\"broker\":\"192.168.1.195\","
+                                       "\"port\":0,\"user\":\"u\",\"pass\":\"p\",\"topic_prefix\":\"home/signs/#\"}}"));
+    ConfigSanitizer::sanitize(cfg);
+    TEST_ASSERT_TRUE(cfg.dataMqtt.enabled);
+    TEST_ASSERT_EQUAL_STRING("192.168.1.195", cfg.dataMqtt.broker.c_str());
+    TEST_ASSERT_EQUAL(1883, cfg.dataMqtt.port);
+    TEST_ASSERT_EQUAL_STRING("home/signs", cfg.dataMqtt.topicPrefix.c_str());
+
+    String json = cfg.serializeToJson();
+    ConfigLoader back;
+    TEST_ASSERT_TRUE(back.parseFromJson(json.c_str()));
+    TEST_ASSERT_TRUE(back.dataMqtt.enabled);
+    TEST_ASSERT_EQUAL_STRING("u", back.dataMqtt.user.c_str());
+    TEST_ASSERT_EQUAL_STRING("p", back.dataMqtt.pass.c_str());
+    TEST_ASSERT_EQUAL_STRING("home/signs", back.dataMqtt.topicPrefix.c_str());
+}
+
 // =========================================================================
 // 3. DisplayArbiter & OverlayManager Tests
 // =========================================================================
@@ -1967,6 +1994,7 @@ void setup() {
     RUN_TEST(test_display_runtime_purge_engine_references);
     RUN_TEST(test_engine_retirement_queue_stress_and_saturation);
     RUN_TEST(test_slot_transition_effect_names);
+    RUN_TEST(test_data_mqtt_config_roundtrip_and_sanitize);
 
     UNITY_END();
 }

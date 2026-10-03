@@ -90,6 +90,7 @@ void ConfigLoader::publishSnapshot_locked() {
     snap.matrix = matrix;
     snap.wifi = wifi;
     snap.mqtt = mqtt;
+    snap.dataMqtt = dataMqtt;
     snap.system = system;
     snap.rotation = rotation;
     snap.instances.clear();
@@ -184,6 +185,8 @@ void ConfigLoader::setDefaults() {
     mqtt.pass = "";
     mqtt.deviceName = "ArcadeMatrix";
     mqtt.allow_overlay = false;
+
+    dataMqtt = DataMqttConfig();
 
     system.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";
     system.format24h = true;
@@ -313,6 +316,16 @@ bool ConfigLoader::parseFromJsonDoc(const JsonDocument& doc) {
         if (m.containsKey("device_name")) mqtt.deviceName = m["device_name"].as<String>();
         else if (m.containsKey("deviceName")) mqtt.deviceName = m["deviceName"].as<String>();
         if (m.containsKey("allow_overlay")) mqtt.allow_overlay = m["allow_overlay"].as<bool>();
+    }
+
+    if (doc.containsKey("data_mqtt")) {
+        JsonObjectConst d = doc["data_mqtt"];
+        dataMqtt.enabled = d["enabled"] | dataMqtt.enabled;
+        dataMqtt.broker = d["broker"] | dataMqtt.broker;
+        dataMqtt.port = d["port"] | dataMqtt.port;
+        dataMqtt.user = d["user"] | dataMqtt.user;
+        dataMqtt.pass = d["pass"] | dataMqtt.pass;
+        dataMqtt.topicPrefix = d["topic_prefix"] | dataMqtt.topicPrefix;
     }
 
     if (doc.containsKey("rotation")) {
@@ -460,6 +473,14 @@ String ConfigLoader::serializeToJson(bool pretty) const {
     mObj["pass"] = mqtt.pass;
     mObj["deviceName"] = mqtt.deviceName;
     mObj["allow_overlay"] = mqtt.allow_overlay;
+
+    JsonObject dObj = doc.createNestedObject("data_mqtt");
+    dObj["enabled"] = dataMqtt.enabled;
+    dObj["broker"] = dataMqtt.broker;
+    dObj["port"] = dataMqtt.port;
+    dObj["user"] = dataMqtt.user;
+    dObj["pass"] = dataMqtt.pass;
+    dObj["topic_prefix"] = dataMqtt.topicPrefix;
 
     JsonArray rotArr = doc.createNestedArray("rotation");
     for (const auto& rot : rotation) {

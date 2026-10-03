@@ -49,6 +49,12 @@ paths:
                     type: integer
                   psram_found:
                     type: boolean
+                  data_mqtt_connected:
+                    type: boolean
+                    description: Whether the data feed MQTT link is connected to its broker.
+                  data_mqtt_topics:
+                    type: integer
+                    description: Topics the data feed has received a payload on (at most 8).
                   render:
                     type: object
                     description: >-
@@ -313,6 +319,16 @@ paths:
                       pass: { type: string, example: "" }
                       device_name: { type: string, example: "ArcadeMatrix" }
                       allow_overlay: { type: boolean, example: false }
+                  data_mqtt:
+                    type: object
+                    description: Data feed MQTT link (data only, never takes over the display). Applied live, no reboot.
+                    properties:
+                      enabled: { type: boolean, example: false }
+                      broker: { type: string, example: "192.168.1.10" }
+                      port: { type: integer, example: 1883 }
+                      user: { type: string, example: "" }
+                      pass: { type: string, example: "" }
+                      topic_prefix: { type: string, example: "arcadematrix" }
                   wifi:
                     type: object
                     properties:
@@ -322,7 +338,7 @@ paths:
       tags:
         - Configuration
       summary: Update system, matrix, or mqtt settings
-      description: Partial update. Saves to SD card. Triggers automatic reboot if matrix or MQTT state changed.
+      description: Partial update. Saves to SD card. Triggers automatic reboot if matrix or MQTT state changed (data_mqtt changes apply live).
       requestBody:
         required: true
         content:

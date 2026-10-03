@@ -77,6 +77,16 @@ struct MqttConfig {
     bool allow_overlay = false;
 };
 
+/// Second MQTT link that only feeds data to engines (e.g. a Home Assistant graph); see DataFeed.
+struct DataMqttConfig {
+    bool enabled = false;
+    String broker = "";
+    int port = 1883;
+    String user = "";
+    String pass = "";
+    String topicPrefix = "arcadematrix";
+};
+
 struct SystemConfig {
     String timezone;
     bool format24h;
@@ -110,6 +120,7 @@ struct ConfigSnapshot {
     MatrixConfig matrix;
     WifiConfig wifi;
     MqttConfig mqtt;
+    DataMqttConfig dataMqtt;
     SystemConfig system;
     std::vector<RotationEntry> rotation;
     std::vector<EngineInstanceSnapshot> instances;
@@ -209,6 +220,7 @@ public:
     MatrixConfig matrix;
     WifiConfig wifi;
     MqttConfig mqtt;
+    DataMqttConfig dataMqtt;
     SystemConfig system;
 
     friend class ConfigSanitizer;
