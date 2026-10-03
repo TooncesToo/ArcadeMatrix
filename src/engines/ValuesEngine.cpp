@@ -84,9 +84,12 @@ struct Fit {
 
 int unitFont(int valueFont) { return valueFont >= 2 ? 1 : TINY; }
 
+// One column more than the value's scale, so "17.0h" does not read as one word.
+int unitGap(int valueFont) { return valueFont + 1; }
+
 int lineWidth(const char* value, const char* unit, int font, bool withUnit) {
     int w = panel_text::width(value, font);
-    if (withUnit && unit[0]) w += font + panel_text::width(unit, unitFont(font));   // gap = value scale
+    if (withUnit && unit[0]) w += unitGap(font) + panel_text::width(unit, unitFont(font));
     return w;
 }
 
@@ -120,7 +123,7 @@ void drawLine(MatrixPanel_I2S_DMA* m, int x, int y, const feed::Tile& t, const F
     panel_text::print(m, x, y, f.value, f.font, m->color565(t.color.r, t.color.g, t.color.b));
     if (!f.unit) return;
     const int uf = unitFont(f.font);
-    const int ux = x + panel_text::width(f.value, f.font) + f.font;
+    const int ux = x + panel_text::width(f.value, f.font) + unitGap(f.font);
     const int uy = y + panel_text::height(f.font) - panel_text::height(uf);   // bottom-aligned
     panel_text::print(m, ux, uy, t.unit, uf, m->color565(t.labelColor.r, t.labelColor.g, t.labelColor.b));
 }
@@ -162,7 +165,8 @@ void ValuesEngine::drawValues() {
     for (int i = 0; i < n; i++) {
         const feed::Tile& t = m_data.tiles[i];
         const int cellX = i * W / n;
-        const int cellR = (i + 1) * W / n;
+        // A 4 px gutter between columns: 2 px off each inner edge.
+        const int cellR = (i + 1) * W / n - (i < n - 1 ? 2 : 0);
         const int ix = cellX + (i > 0 ? 2 : 0);
         int areaTop = ct;
         if (n == 1 && title) {

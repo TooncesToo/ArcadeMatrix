@@ -367,7 +367,7 @@ No se hace ninguna petición HTTP: el panel lee un mensaje retenido del flujo `d
  "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...hasta 5"]}
 ```
-El día 0 es hoy (`current.temp` en vivo, rango y condición de `days[0]`); se muestran hasta 5 días. Las condiciones son las estándar de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); una desconocida se muestra tal cual.
+Primero aparece una página **AHORA**: `current.temp` en vivo en blanco, con la humedad y el viento (o la condición si faltan ambos). Después hasta 5 días de pronóstico (mín/máx, condición), siendo el día 0 hoy. Las condiciones son las estándar de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); una desconocida se muestra tal cual.
 
 #### Cómo formatear el campo `city` en OpenWeatherMap
 OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
