@@ -229,13 +229,37 @@ void WeatherEngine::pollHaFeed() {
 
     WeatherData fresh[MAX_FORECAST_DAYS];
     int n = 0;
-    const int days = wx.dayCount > 0 ? wx.dayCount : (wx.hasCurrent ? 1 : 0);
+    if (wx.hasCurrent) {
+        // First page: the live backyard reading, which the forecast pages (low/high only) never show.
+        WeatherData& d = fresh[n++];
+        d.isNow = true;
+        d.temp = d.temp_min = d.temp_max = wx.currentTemp;
+        const char* cond = wx.currentCondition[0] ? wx.currentCondition
+                         : (wx.dayCount > 0 ? wx.days[0].condition : "");
+        d.iconCode = feed::iconForCondition(cond);
+        char line2[32] = {0};
+        char wind[16] = {0};
+        if (!isnan(wx.wind)) snprintf(wind, sizeof(wind), "%.0f%s", wx.wind, wx.windUnit);
+        if (wx.humidity >= 0 && wind[0]) snprintf(line2, sizeof(line2), "%d%% %s", wx.humidity, wind);
+        else if (wx.humidity >= 0) snprintf(line2, sizeof(line2), "%d%%", wx.humidity);
+        else strlcpy(line2, wind, sizeof(line2));
+        if (line2[0]) {
+            d.description = line2;
+            d.descriptionLong = line2;
+        } else {
+            const int group = feed::conditionGroup(cond);
+            d.description = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, false, lang));
+            d.descriptionLong = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, true, lang));
+        }
+        d.label = I18n::getNowLabel(lang);
+        d.labelLong = d.label;
+    }
+    const int days = wx.dayCount;   // with no forecast the NOW page stands alone
     for (int i = 0; i < days && n < MAX_FORECAST_DAYS; i++) {
         WeatherData& d = fresh[n];
         const feed::WeatherDay* day = i < wx.dayCount ? &wx.days[i] : nullptr;
         // Today shows the live station reading; its range and condition come from the forecast.
         const char* cond = (day && day->condition[0]) ? day->condition : (i == 0 ? wx.currentCondition : "");
-        if (i == 0 && day == nullptr) cond = wx.currentCondition;
         float tMin = (day && day->hasTemps) ? day->tempMin : wx.currentTemp;
         float tMax = (day && day->hasTemps) ? day->tempMax : wx.currentTemp;
         d.temp = (i == 0 && wx.hasCurrent) ? wx.currentTemp : (tMin + tMax) * 0.5f;
@@ -453,13 +477,20 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
     char unitChar = useFahrenheit() ? 'F' : 'C';
     char tempMinStr[16];
     char tempMaxStr[16];
-    sprintf(tempMinStr, "%.0f%c", data.temp_min, unitChar);
-    sprintf(tempMaxStr, "%.0f%c", data.temp_max, unitChar);
+    if (data.isNow) {
+        // Live page: the station reading in white on the first row, nothing on the second.
+        sprintf(tempMinStr, "%.0f%c", data.temp, unitChar);
+        tempMaxStr[0] = '\0';
+    } else {
+        sprintf(tempMinStr, "%.0f%c", data.temp_min, unitChar);
+        sprintf(tempMaxStr, "%.0f%c", data.temp_max, unitChar);
+    }
     
     int mw = matrix->width();
     int mh = matrix->height();
 
-    uint16_t colorMorning = matrix->color565(120, 200, 255); // Soft Cyan (Morning / Min)
+    uint16_t colorMorning = data.isNow ? matrix->color565(255, 255, 255)   // live reading: white
+                                       : matrix->color565(120, 200, 255); // Soft Cyan (Morning / Min)
     uint16_t colorAfternoon = matrix->color565(255, 150, 50); // Warm Orange (Afternoon / Max)
     uint16_t colorLabel = matrix->color565(180, 180, 255);    // Lavender
     uint16_t colorDesc = matrix->color565(210, 210, 210);     // Light silver

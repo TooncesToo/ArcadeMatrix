@@ -10,6 +10,7 @@ struct WeatherData {
     String label; // "AUJ." / "DEMN" / abbreviated weekday name
     String labelLong;       // "TODAY" / "TOMORROW" / full weekday name, for wide panels
     String descriptionLong; // unabbreviated condition, for wide panels
+    bool isNow = false;     // live reading page (Home Assistant source): `temp` only, no range
 };
 
 class IWeatherProvider {

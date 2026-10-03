@@ -13,7 +13,7 @@
 
 class WeatherEngine : public IEngine {
 public:
-    static const int MAX_FORECAST_DAYS = 5;   // OWM fills 3; a Home Assistant payload up to 5
+    static const int MAX_FORECAST_DAYS = 6;   // OWM fills 3; Home Assistant: NOW page + up to 5 days
 
     WeatherEngine();
     ~WeatherEngine();
