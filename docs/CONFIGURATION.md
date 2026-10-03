@@ -367,7 +367,7 @@ No HTTP request is made; the sign reads a retained payload from the `data_mqtt` 
  "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...up to 5"]}
 ```
-A **NOW** page comes first: the live `current.temp` in white, with humidity and wind (or the condition when both are missing). Then up to 5 forecast days (low/high, condition), day 0 being today. Conditions are Home Assistant's standard set (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); an unknown one is shown as received.
+A **NOW** page comes first: the live `current.temp` in white, with humidity and wind under it in grey (or the condition when both are missing). Then up to 5 forecast days (low/high, condition), day 0 being today. Conditions are Home Assistant's standard set (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); an unknown one is shown as received.
 
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:

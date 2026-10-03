@@ -367,7 +367,7 @@ Aucune requête HTTP : le panneau lit un message retenu du flux `data_mqtt`. Les
  "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...jusqu'à 5"]}
 ```
-Une page **MAINT.** (maintenant) vient en premier : `current.temp` en direct en blanc, avec l'humidité et le vent (ou la condition si les deux manquent). Puis jusqu'à 5 jours de prévisions (min/max, condition), le jour 0 étant aujourd'hui. Les conditions sont celles de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`) ; une condition inconnue s'affiche telle quelle.
+Une page **ACTU.** (actuel) vient en premier : `current.temp` en direct en blanc, avec l'humidité et le vent en gris dessous (ou la condition si les deux manquent). Puis jusqu'à 5 jours de prévisions (min/max, condition), le jour 0 étant aujourd'hui. Les conditions sont celles de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`) ; une condition inconnue s'affiche telle quelle.
 
 #### Formatage du champ `city` sur OpenWeatherMap
 OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres pour les États-Unis) :

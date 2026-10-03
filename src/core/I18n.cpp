@@ -93,7 +93,7 @@ const char* I18n::getWeatherDayLabelLong(int dayOfWeek, bool isToday, bool isTom
 }
 
 const char* I18n::getNowLabel(Lang l) {
-    return (l == Lang::EN) ? "NOW" : (l == Lang::ES) ? "AHORA" : "MAINT.";
+    return (l == Lang::EN) ? "NOW" : (l == Lang::ES) ? "AHORA" : "ACTU.";
 }
 
 const char* I18n::getHaConditionLabel(int group, bool longForm, Lang l) {

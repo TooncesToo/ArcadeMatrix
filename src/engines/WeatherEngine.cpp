@@ -241,18 +241,17 @@ void WeatherEngine::pollHaFeed() {
         d.iconCode = feed::iconForCondition(cond);
         char line2[32] = {0};
         char wind[16] = {0};
-        if (!isnan(wx.wind)) snprintf(wind, sizeof(wind), "%.0f%s", wx.wind, wx.windUnit);
+        if (!isnan(wx.wind)) snprintf(wind, sizeof(wind), "%ld%s", lroundf(wx.wind), wx.windUnit);
         if (wx.humidity >= 0 && wind[0]) snprintf(line2, sizeof(line2), "%d%% %s", wx.humidity, wind);
         else if (wx.humidity >= 0) snprintf(line2, sizeof(line2), "%d%%", wx.humidity);
         else strlcpy(line2, wind, sizeof(line2));
         if (line2[0]) {
-            d.description = line2;
-            d.descriptionLong = line2;
+            d.nowLine2 = line2;
         } else {
             const int group = feed::conditionGroup(cond);
-            d.description = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, false, lang));
-            d.descriptionLong = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, true, lang));
+            d.nowLine2 = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, false, lang));
         }
+        // No condition text in the label column on this page; line 2 sits under the live reading.
         d.label = I18n::getNowLabel(lang);
         d.labelLong = d.label;
     }
@@ -478,11 +477,11 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
     
     char unitChar = useFahrenheit() ? 'F' : 'C';
     char tempMinStr[16];
-    char tempMaxStr[16];
+    char tempMaxStr[32];
     if (data.isNow) {
-        // Live page: the station reading in white on the first row, nothing on the second.
+        // Live page: the station reading in white on the first row, humidity and wind in grey under it.
         sprintf(tempMinStr, "%.0f%c", data.temp, unitChar);
-        tempMaxStr[0] = '\0';
+        strlcpy(tempMaxStr, data.nowLine2.c_str(), sizeof(tempMaxStr));
     } else {
         sprintf(tempMinStr, "%.0f%c", data.temp_min, unitChar);
         sprintf(tempMaxStr, "%.0f%c", data.temp_max, unitChar);
@@ -493,9 +492,13 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
 
     uint16_t colorMorning = data.isNow ? matrix->color565(255, 255, 255)   // live reading: white
                                        : matrix->color565(120, 200, 255); // Soft Cyan (Morning / Min)
-    uint16_t colorAfternoon = matrix->color565(255, 150, 50); // Warm Orange (Afternoon / Max)
     uint16_t colorLabel = matrix->color565(180, 180, 255);    // Lavender
     uint16_t colorDesc = matrix->color565(210, 210, 210);     // Light silver
+    uint16_t colorAfternoon = data.isNow ? colorDesc                   // live page line 2: grey
+                                         : matrix->color565(255, 150, 50); // Warm Orange (Afternoon / Max)
+    // The label column is placed from the first line only on the live page, so its longer second
+    // line does not push the label right.
+    const char* widthRef = data.isNow ? tempMinStr : nullptr;
 
     if (mw >= 256 && mh >= 64) {
         // --- 256x64 wide layout ---
@@ -514,7 +517,7 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
 
         // Right column: widest temperature decides the column, both right-aligned to the same edge.
         int rightEdge = mw - margin + config_offset_x;
-        int tempW = max(textW(tempMinStr, 2), textW(tempMaxStr, 2));
+        int tempW = widthRef ? textW(widthRef, 2) : max(textW(tempMinStr, 2), textW(tempMaxStr, 2));
         matrix->setTextSize(2);
         matrix->setTextColor(shadowColor);
         matrix->setCursor(rightEdge - textW(tempMinStr, 2) + 1, rowTopY + 1);
@@ -556,7 +559,7 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
         drawIcon(data.iconCode, iconX, iconY);
 
         int tempX = iconX + 28;
-        int maxLen = max((int)strlen(tempMinStr), (int)strlen(tempMaxStr));
+        int maxLen = widthRef ? (int)strlen(widthRef) : max((int)strlen(tempMinStr), (int)strlen(tempMaxStr));
         int textW = maxLen * 6;
 
         matrix->setTextSize(1);
