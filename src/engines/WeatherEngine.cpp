@@ -242,7 +242,7 @@ void WeatherEngine::pollHaFeed() {
         char line2[32] = {0};
         char wind[16] = {0};
         if (!isnan(wx.wind)) snprintf(wind, sizeof(wind), "%ld%s", lroundf(wx.wind), wx.windUnit);
-        if (wx.humidity >= 0 && wind[0]) snprintf(line2, sizeof(line2), "%d%% %s", wx.humidity, wind);
+        if (wx.humidity >= 0 && wind[0]) snprintf(line2, sizeof(line2), "%d%%  %s", wx.humidity, wind);   // two spaces: one reads as "34%5mph"
         else if (wx.humidity >= 0) snprintf(line2, sizeof(line2), "%d%%", wx.humidity);
         else strlcpy(line2, wind, sizeof(line2));
         if (line2[0]) {
