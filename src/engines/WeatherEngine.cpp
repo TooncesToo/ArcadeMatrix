@@ -239,17 +239,29 @@ void WeatherEngine::pollHaFeed() {
         const char* cond = wx.currentCondition[0] ? wx.currentCondition
                          : (wx.dayCount > 0 ? wx.days[0].condition : "");
         d.iconCode = feed::iconForCondition(cond);
-        char line2[32] = {0};
-        char wind[16] = {0};
-        if (!isnan(wx.wind)) snprintf(wind, sizeof(wind), "%ld%s", lroundf(wx.wind), wx.windUnit);
-        if (wx.humidity >= 0 && wind[0]) snprintf(line2, sizeof(line2), "%d%%  %s", wx.humidity, wind);   // two spaces: one reads as "34%5mph"
-        else if (wx.humidity >= 0) snprintf(line2, sizeof(line2), "%d%%", wx.humidity);
-        else strlcpy(line2, wind, sizeof(line2));
-        if (line2[0]) {
-            d.nowLine2 = line2;
+        // Row 2: "<humidity>%  <dir> <speed><unit>"; the direction never stands without a speed, and a
+        // copy without it is kept for panels where the full line would run into the label column.
+        char speed[16] = {0};
+        char windDir[24] = {0};
+        if (!isnan(wx.wind)) {
+            snprintf(speed, sizeof(speed), "%ld%s", lroundf(wx.wind), wx.windUnit);
+            if (wx.windDir[0]) snprintf(windDir, sizeof(windDir), "%s %s", wx.windDir, speed);
+        }
+        auto build = [&](const char* wind, char* out, size_t cap) {
+            if (wx.humidity >= 0 && wind[0]) snprintf(out, cap, "%d%%  %s", wx.humidity, wind);   // two spaces: one reads as "34%5mph"
+            else if (wx.humidity >= 0) snprintf(out, cap, "%d%%", wx.humidity);
+            else strlcpy(out, wind, cap);
+        };
+        char full[40] = {0}, plain[40] = {0};
+        build(windDir[0] ? windDir : speed, full, sizeof(full));
+        build(speed, plain, sizeof(plain));
+        if (full[0]) {
+            d.nowLine2 = full;
+            d.nowLine2NoDir = plain;
         } else {
             const int group = feed::conditionGroup(cond);
             d.nowLine2 = group < 0 ? String(cond) : String(I18n::getHaConditionLabel(group, false, lang));
+            d.nowLine2NoDir = d.nowLine2;
         }
         // No condition text in the label column on this page; line 2 sits under the live reading.
         d.label = I18n::getNowLabel(lang);
@@ -484,7 +496,15 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
     if (data.isNow) {
         // Live page: the station reading in white on the first row, humidity and wind in grey under it.
         sprintf(tempMinStr, "%.0f\xF7%c", data.temp, unitChar);
-        strlcpy(tempMaxStr, data.nowLine2.c_str(), sizeof(tempMaxStr));
+        // Row 2 is right-aligned and must start at or after the label column (x=32 at 128x32, x=64
+        // at 256x64); if the full line would not, the wind direction is dropped first.
+        const int mwNow = matrix->width(), mhNow = matrix->height();
+        const int scale = (mwNow >= 256 && mhNow >= 64) ? 2 : 1;
+        const int rightEdge = (scale == 2 ? mwNow - 8 : mwNow - 4) + config_offset_x;
+        const int labelX = (scale == 2 ? 8 + 48 + 8 : 4 + 24 + 4) + config_offset_x;
+        const int fullW = data.nowLine2.length() ? (int)data.nowLine2.length() * 6 * scale - scale : 0;
+        const bool fits = (mwNow >= 128) ? rightEdge - fullW >= labelX : true;
+        strlcpy(tempMaxStr, (fits ? data.nowLine2 : data.nowLine2NoDir).c_str(), sizeof(tempMaxStr));
     } else {
         sprintf(tempMinStr, "%.0f\xF7%c", data.temp_min, unitChar);
         sprintf(tempMaxStr, "%.0f\xF7%c", data.temp_max, unitChar);
