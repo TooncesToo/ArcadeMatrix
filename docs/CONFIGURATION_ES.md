@@ -569,7 +569,7 @@ La versión 1 acepta además (todo opcional, los mensajes antiguos se ven igual)
 - `°` en `title`/`summary` se dibuja como el signo de grado.
 - `title_short`: abreviatura opcional, usada solo si el `title` completo no cabe junto al resumen.
 - `summary_color`: `#RRGGBB` opcional para el texto del resumen (por defecto el color de la primera serie), p. ej. para mostrar un estado en vivo.
-- `legend`: opcional, hasta 4 elementos `{"text":"INSIDE","color":"#40A0FF"}` (se omite un elemento sin color válido) en fuente 3x5 en una fila bajo el encabezado, solo en paneles de al menos 64 px de alto (se ignora en 32 px). Los elementos que no caben se quitan por el final; nunca se corta una palabra.
+- `legend`: opcional, hasta 4 elementos `{"text":"INSIDE","color":"#40A0FF"}` (se omite un elemento sin color válido) en fuente 3x5 en una fila en la parte inferior del panel (bajo el gráfico), solo en paneles de al menos 64 px de alto (se ignora en 32 px). Los elementos que no caben se quitan por el final; nunca se corta una palabra.
 
 Ejemplo de automatización de Home Assistant (los dos atributos guardan los 96 valores móviles de 15 min):
 

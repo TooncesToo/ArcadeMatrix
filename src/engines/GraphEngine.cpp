@@ -107,11 +107,12 @@ void GraphEngine::drawGraph() {
     if (layout.header) drawHeader(layout);
 
     int px = layout.plot.x, pw = layout.plot.w;
-    // Legend (tall panels only): one tiny-font row where the plot used to start; the plot moves down 7.
+    // Legend (tall panels only): one tiny-font row at the bottom; the plot ends 7 rows higher
+    // (256x64: plot rows 15..56, legend 58..62, row 63 blank).
     const bool legend = g.legendCount > 0 && m_matrix->height() >= 64;
-    const int legendY = layout.plot.y;
-    const int py = layout.plot.y + (legend ? 7 : 0);
+    const int py = layout.plot.y;
     const int ph = layout.plot.h - (legend ? 7 : 0);
+    const int legendY = py + ph + 1;
     if (pw <= 0 || ph <= 0 || g.slots == 0) return;
     const int base = py + ph - 1;
     const graph::Range range = graph::yRange(g);
@@ -128,7 +129,7 @@ void GraphEngine::drawGraph() {
         const int lw = wmax > wmin ? wmax : wmin;
         const uint16_t grey = m_matrix->color565(0x70, 0x70, 0x70);
         panel_text::print(m_matrix, lw - wmax, py, lmax, panel_text::TINY, grey);
-        panel_text::print(m_matrix, lw - wmin, m_matrix->height() - 5, lmin, panel_text::TINY, grey);
+        panel_text::print(m_matrix, lw - wmin, py + ph - 5, lmin, panel_text::TINY, grey);   // plot's bottom rows
         px = lw + 1;
         pw = m_matrix->width() - px;
         if (pw <= 0) return;
