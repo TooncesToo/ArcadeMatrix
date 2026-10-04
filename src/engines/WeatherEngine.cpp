@@ -207,6 +207,12 @@ void WeatherEngine::pollHaFeed() {
     const char* topic = m_haTopic[m_haTopicIdx.load(std::memory_order_acquire)];
     const int slot = dataFeed.findTopic(topic);
     if (slot < 0) {
+        // Not received yet, or the topic was cleared / evicted: back to the "WEATHER..." notice.
+        if (m_haSeenSeq != 0) {
+            m_haSeenSeq = 0;
+            m_validData.store(false, std::memory_order_release);
+            g_fetchState.valid = false;
+        }
         strlcpy(g_fetchState.lastError, "waiting for ha payload", sizeof(g_fetchState.lastError));
         return;
     }
@@ -214,7 +220,7 @@ void WeatherEngine::pollHaFeed() {
     if (seq == 0 || seq == m_haSeenSeq) return;
     feed::WeatherFeed& wx = m_haScratch;   // per instance: two weather screens run two fetch tasks
     uint32_t got = 0;
-    if (!dataFeed.copyWeather(slot, wx, got)) {
+    if (!dataFeed.copyWeather(slot, topic, wx, got)) {
         if (dataFeed.kindOf(slot) != feed::Kind::Weather) {
             m_haSeenSeq = seq;
             strlcpy(g_fetchState.lastError, "topic is not weather", sizeof(g_fetchState.lastError));

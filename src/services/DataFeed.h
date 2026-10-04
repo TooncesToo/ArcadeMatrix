@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 #include "../engines/graph/GraphPayload.h"
 #include "../engines/graph/FeedPayloads.h"
+#include "../engines/graph/TopicTable.h"
 
 /**
  * Data feed: a second MQTT connection, separate from the arcade Frontend Sync one, that only
@@ -23,9 +24,9 @@
  */
 class DataFeed {
 public:
-    static constexpr uint8_t MAX_TOPICS = 8;
+    static constexpr uint8_t MAX_TOPICS = feed::TopicTable::SLOTS;
     static constexpr size_t MAX_PAYLOAD = 8192;
-    static constexpr size_t MAX_TOPIC_LEN = 96;
+    static constexpr size_t MAX_TOPIC_LEN = feed::TopicTable::TOPIC_LEN;
 
     DataFeed() = default;
     ~DataFeed();
@@ -35,49 +36,51 @@ public:
     void begin();
 
     bool isConnected() const { return m_connected.load(std::memory_order_acquire); }
-    uint8_t topicCount() const { return m_topicCount.load(std::memory_order_acquire); }
+    uint8_t topicCount() const { return m_table.count(); }
 
     /// Slot holding `topic`, or -1. Lock-free; safe on Core 1.
-    int findTopic(const char* topic) const;
+    int findTopic(const char* topic) const { return m_table.find(topic); }
 
-    /// Publication counter for a slot (0 = nothing parsed yet). Lock-free.
-    uint32_t sequence(int slot) const;
+    /// Whether slot `slot` still holds `topic`. A slot is freed by an empty payload and may be
+    /// evicted for a new topic, so a reader that cached a slot index checks this before trusting it.
+    bool holds(int slot, const char* topic) const { return m_table.holds(slot, topic); }
+
+    /// Change counter for a slot: bumped by every payload and every change of occupant. Lock-free.
+    uint32_t sequence(int slot) const { return m_table.sequence(slot); }
 
     /// Kind of the slot's latest payload (Kind::None before the first one). Lock-free.
     feed::Kind kindOf(int slot) const;
 
     /**
-     * Copy the slot's latest payload of that kind into `out`. Lock-free: false when the slot holds
-     * another kind, nothing yet, or a new payload was published while copying (then `out` must be
-     * ignored; try again on a later frame).
+     * Copy the slot's latest payload of that kind into `out`, provided the slot still holds `topic`.
+     * Lock-free: false when the slot holds another topic or kind, nothing yet, or changed while
+     * copying (then `out` must be ignored; try again on a later frame).
      */
-    bool copyGraph(int slot, graph::GraphData& out, uint32_t& seqOut) const;
-    bool copyValues(int slot, feed::ValuesData& out, uint32_t& seqOut) const;
-    bool copyWeather(int slot, feed::WeatherFeed& out, uint32_t& seqOut) const;
+    bool copyGraph(int slot, const char* topic, graph::GraphData& out, uint32_t& seqOut) const;
+    bool copyValues(int slot, const char* topic, feed::ValuesData& out, uint32_t& seqOut) const;
+    bool copyWeather(int slot, const char* topic, feed::WeatherFeed& out, uint32_t& seqOut) const;
 
 private:
+    /// Payload storage per topic slot (which topic a slot holds lives in m_table).
     struct Slot {
-        std::atomic<uint8_t> ready{0};          ///< topic[] is set and stable
-        char topic[MAX_TOPIC_LEN];
         graph::GraphData* graphs = nullptr;     ///< [2], double buffers per kind
         feed::ValuesData* values = nullptr;
         feed::WeatherFeed* weather = nullptr;
         std::atomic<uint8_t> kinds[2];          ///< feed::Kind held by each buffer index
         std::atomic<uint8_t> idx{0};            ///< published buffer index
-        std::atomic<uint32_t> seq{0};
     };
 
     template <typename T>
-    bool copyKind(int slot, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const;
+    bool copyKind(int slot, const char* topic, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const;
 
+    feed::TopicTable m_table;
     Slot m_slots[MAX_TOPICS];
     std::atomic<bool> m_connected{false};
-    std::atomic<uint8_t> m_topicCount{0};
+    char m_lastRefused[MAX_TOPIC_LEN] = {0};   ///< feed task only: log a refused topic once
     TaskHandle_t m_task = nullptr;
     bool m_storageReady = false;
     bool m_allocFailed = false;
     bool m_unsupported = false;
-    bool m_warnedFull = false;
     bool m_warnedSize = false;
 
     bool allocateStorage();
@@ -85,7 +88,7 @@ private:
     void run();
     static void onMessage(char* topic, uint8_t* payload, unsigned int length);
     void handleMessage(const char* topic, const uint8_t* payload, unsigned int length);
-    int claimSlot(const char* topic);
+    static bool topicReferenced(const char* topic, void* ctx);
 
     static DataFeed* s_instance;
 };

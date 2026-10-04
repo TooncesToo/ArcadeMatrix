@@ -42,6 +42,13 @@ void GraphEngine::onConfigChanged(const EngineConfig* config) {
 
 void GraphEngine::pollFeed() {
     uint32_t now = millis();
+    // The slot may have been freed (the topic was cleared) or given to another topic: drop it, show
+    // the no-data notice, and look the topic up again.
+    if (m_slot >= 0 && !dataFeed.holds(m_slot, m_topic)) {
+        m_slot = -1;
+        m_seenSeq = 0;
+        if (m_haveData) { m_haveData = false; requestRedraw(); }
+    }
     if (m_slot < 0 && (m_lastLookupMs == 0 || now - m_lastLookupMs >= 500)) {
         m_lastLookupMs = now;
         m_slot = dataFeed.findTopic(m_topic);
@@ -55,7 +62,7 @@ void GraphEngine::pollFeed() {
         return;
     }
     uint32_t got = 0;
-    if (dataFeed.copyGraph(m_slot, *m_data, got)) {   // false = mid-publication, retry next frame
+    if (dataFeed.copyGraph(m_slot, m_topic, *m_data, got)) {   // false = mid-publication, retry next frame
         m_seenSeq = got;
         m_haveData = m_data->valid;
         requestRedraw();
