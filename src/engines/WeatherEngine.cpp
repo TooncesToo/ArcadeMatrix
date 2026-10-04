@@ -295,7 +295,7 @@ bool WeatherEngine::loop() {
 
 void WeatherEngine::drawForecast(const WeatherData& data) {
     // The shared weather layout ("90°F", high above low in °F, icon | day + condition | temperatures),
-    // the same one the Home Assistant weather pages use.
+    // the same one the MQTT Data weather pages use.
     weather_layout::Page page;
     const bool fahrenheit = config_units.equalsIgnoreCase("imperial") || config_units.equalsIgnoreCase("fahrenheit") ||
                             config_units.equalsIgnoreCase("f");
