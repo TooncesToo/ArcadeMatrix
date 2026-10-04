@@ -10,7 +10,7 @@
  *  - Values:  {"v":1,"title":"ENERGY","tiles":[{"label":"HOUSE","label_short":"HSE","value":"2.8","unit":"kW",
  *              "color":"#FFB000","label_color":"#808080"}, ... up to 4]}
  *  - Weather: {"v":1,"units":"imperial","current":{"temp":75,"condition":"clear-night","humidity":47,
- *              "wind":7,"wind_unit":"mph"},"days":[{"temp_max":89,"temp_min":70,"condition":"sunny",
+ *              "wind":7,"wind_unit":"mph","wind_dir":"NE"},"days":[{"temp_max":89,"temp_min":70,"condition":"sunny",
  *              "precip_prob":0}, ... up to 5]}
  *
  * Plain fixed-size data like GraphData, so they cross the cores without the heap.
@@ -61,6 +61,7 @@ struct WeatherFeed {
     int8_t humidity;           ///< -1 when absent
     float wind;                ///< NaN when absent
     char windUnit[8];
+    char windDir[4];           ///< 8-point compass ("NE"), "" when absent
     uint8_t dayCount;
     WeatherDay days[MAX_DAYS];
 };

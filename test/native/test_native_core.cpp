@@ -696,6 +696,7 @@ void test_feed_weather_payload_and_conditions(void) {
     TEST_ASSERT_EQUAL_FLOAT(75.0f, w.currentTemp);
     TEST_ASSERT_EQUAL_STRING("clear-night", w.currentCondition);
     TEST_ASSERT_EQUAL(47, w.humidity);
+    TEST_ASSERT_EQUAL_STRING("", w.windDir);
     TEST_ASSERT_EQUAL(5, w.dayCount);                        // sixth day ignored
     TEST_ASSERT_EQUAL_FLOAT(89.0f, w.days[0].tempMax);
     TEST_ASSERT_EQUAL(0, w.days[0].precipProb);
@@ -718,6 +719,9 @@ void test_feed_weather_payload_and_conditions(void) {
     TEST_ASSERT_EQUAL((int)feed::Kind::Graph, (int)feed::detectKind(g_graphDoc));
     TEST_ASSERT_TRUE(parseDoc("{\"hello\":1}"));
     TEST_ASSERT_EQUAL((int)feed::Kind::None, (int)feed::detectKind(g_graphDoc));
+    TEST_ASSERT_TRUE(parseDoc("{\"current\":{\"temp\":80,\"wind\":9,\"wind_dir\":\"NE\"}}"));
+    TEST_ASSERT_TRUE(feed::parseWeather(g_graphDoc, w));
+    TEST_ASSERT_EQUAL_STRING("NE", w.windDir);
     TEST_ASSERT_TRUE(parseDoc("{\"current\":{\"temp\":21}}"));
     TEST_ASSERT_TRUE(feed::parseWeather(g_graphDoc, w));
     TEST_ASSERT_FALSE(w.imperial);

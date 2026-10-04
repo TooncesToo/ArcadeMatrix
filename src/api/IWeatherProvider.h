@@ -11,7 +11,8 @@ struct WeatherData {
     String labelLong;       // "TODAY" / "TOMORROW" / full weekday name, for wide panels
     String descriptionLong; // unabbreviated condition, for wide panels
     bool isNow = false;     // live reading page (Home Assistant source): `temp` only, no range
-    String nowLine2;        // live page: "47% 7mph" (or the condition) drawn where the high usually is
+    String nowLine2;        // live page: "41%  NE 9mph" (or the condition) drawn where the high usually is
+    String nowLine2NoDir;   // the same without the wind direction, used when the full line does not fit
 };
 
 class IWeatherProvider {

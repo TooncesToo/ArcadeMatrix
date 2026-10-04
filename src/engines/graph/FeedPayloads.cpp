@@ -85,6 +85,7 @@ bool parseWeather(const JsonDocument& doc, WeatherFeed& out) {
     out.humidity = (!cur.isNull() && cur["humidity"].is<int>()) ? (int8_t)cur["humidity"].as<int>() : -1;
     out.wind = (!cur.isNull() && cur["wind"].is<float>()) ? cur["wind"].as<float>() : NAN;
     copyId(out.windUnit, sizeof(out.windUnit), cur.isNull() ? "" : (cur["wind_unit"] | ""));
+    copyId(out.windDir, sizeof(out.windDir), cur.isNull() ? "" : (cur["wind_dir"] | ""));
 
     out.dayCount = 0;
     for (JsonObjectConst d : days) {
