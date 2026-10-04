@@ -27,7 +27,7 @@ void FrontendSyncEngine::begin() {
     
     if (mqttConfig.broker.isEmpty() || mqttConfig.broker == "127.0.0.1" || mqttConfig.broker == "localhost") {
         LOGI("RetroFrontend", "Starting embedded PicoMQTT Broker on port %d...", mqttConfig.port);
-        internalBroker = new PicoMQTT::Server(mqttConfig.port);
+        internalBroker = new PicoMQTT::Server(mqttConfig.port, 5, 2);
         
         // Subscribe strictly to canonical wildcard topic
         internalBroker->subscribe(MQTT_TOPIC_WILDCARD, [](const char* topic, const char* payload) {
@@ -106,9 +106,15 @@ bool FrontendSyncEngine::loop() {
     }
     
     if (hasPendingEvent) {
-        hasPendingEvent = false;
-        uint32_t reqId = currentRequestId;
-        handleGameEvent(pendingPayload, reqId);
+        // Debounce browsing events by 150ms of quiet time so rapid navigation doesn't hammer SD card or broker.
+        // Non-browsing events (gameStart, gameStop, playing, stopped) are processed immediately.
+        bool isBrowsing = (pendingPayload.indexOf("\"status\":\"browsing\"") != -1 || 
+                           pendingPayload.indexOf("\"status\": \"browsing\"") != -1);
+        if (!isBrowsing || (millis() - pendingEventTime >= 150)) {
+            hasPendingEvent = false;
+            uint32_t reqId = currentRequestId;
+            handleGameEvent(pendingPayload, reqId);
+        }
     } else if (!hasReceivedAnyEvent && (!waitingDisplayed || (message && !message->isActive())) && message) {
         waitingDisplayed = true;
         MessageConfig cfg = { "WAITING FOR MARQUEE", 0xFFFF, 1, "none", 40, 0 };
@@ -154,6 +160,7 @@ void FrontendSyncEngine::handleMessage(String topic, String msg) {
         LOGI("RetroFrontend", "Matched game playing topic, queueing game event.");
         pendingPayload = msg;
         hasPendingEvent = true;
+        pendingEventTime = millis();
         currentRequestId++;
         return;
     }
@@ -222,6 +229,7 @@ void FrontendSyncEngine::handleGameEvent(const String& jsonPayload, uint32_t req
                 String testPaths[] = {
                     "/pixelcade/" + folder + "/" + nameVar,
                     "/" + folder + "/" + nameVar,
+                    "/pixelcade/console/" + folder + "/" + nameVar,
                     "/pixelcade/console/" + nameVar,
                     "/console/" + nameVar
                 };
@@ -292,6 +300,13 @@ void FrontendSyncEngine::handleGameEvent(const String& jsonPayload, uint32_t req
         if (message) {
             message->deactivate();
         }
+        return;
+    }
+
+    // Fallback: If no game marquee is found, fallback to system marquee (e.g. /console/snes.png)
+    if (cleanSystem.length() > 0) {
+        LOGI("RetroFrontend", "No game marquee found for %s (%s), falling back to system marquee...", game.c_str(), cleanSystem.c_str());
+        handleSystemEvent(cleanSystem, reqId);
     }
 }
 
@@ -838,19 +853,19 @@ String FrontendSyncEngine::mapSystemToPixelcadeFolder(const String& systemId) {
         {"konami", "mame"}, {"taito", "mame"}, {"dataeast", "mame"}, {"midway", "mame"},
         {"irem", "mame"}, {"namco", "mame"}, {"toaplan", "mame"}, {"technos", "mame"},
         {"sammy", "mame"}, {"atomiswave", "mame"}, {"naomi", "mame"}, {"neogeo", "neogeo"}, {"snk", "mame"},
-        {"nes", "console/nes"}, {"famicom", "console/nes"},
-        {"snes", "console/snes"}, {"supernintendo", "console/snes"},
-        {"n64", "console/n64"}, {"nintendo64", "console/n64"},
-        {"gb", "console/gb"}, {"gameboy", "console/gb"},
-        {"gba", "console/gba"}, {"gameboyadvance", "console/gba"},
-        {"gbc", "console/gbc"}, {"gameboycolor", "console/gbc"},
-        {"megadrive", "console/genesis"}, {"genesis", "console/genesis"},
-        {"mastersystem", "console/mastersystem"}, {"gamegear", "console/gamegear"},
-        {"psx", "console/psx"}, {"ps1", "console/psx"}, {"playstation", "console/psx"},
-        {"ps2", "console/ps2"}, {"psp", "console/psp"},
-        {"dreamcast", "console/dreamcast"}, {"saturn", "console/saturn"},
-        {"pcengine", "console/pcengine"}, {"tg16", "console/pcengine"},
-        {"atari2600", "console/atari2600"}, {"atari5200", "console/atari5200"}, {"atari7800", "console/atari7800"}
+        {"nes", "nes"}, {"famicom", "nes"},
+        {"snes", "snes"}, {"supernintendo", "snes"},
+        {"n64", "n64"}, {"nintendo64", "n64"},
+        {"gb", "gb"}, {"gameboy", "gb"},
+        {"gba", "gba"}, {"gameboyadvance", "gba"},
+        {"gbc", "gbc"}, {"gameboycolor", "gbc"},
+        {"megadrive", "genesis"}, {"genesis", "genesis"},
+        {"mastersystem", "mastersystem"}, {"gamegear", "gamegear"},
+        {"psx", "psx"}, {"ps1", "psx"}, {"playstation", "psx"},
+        {"ps2", "ps2"}, {"psp", "psp"},
+        {"dreamcast", "dreamcast"}, {"saturn", "saturn"},
+        {"pcengine", "pcengine"}, {"tg16", "pcengine"},
+        {"atari2600", "atari2600"}, {"atari5200", "atari5200"}, {"atari7800", "atari7800"}
     };
     for (const auto& m : table) {
         if (sLower == m.systemId) return String(m.folder);
