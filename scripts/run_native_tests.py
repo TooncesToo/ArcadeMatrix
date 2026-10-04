@@ -39,6 +39,9 @@ def main():
         os.path.join(PROJECT_ROOT, "test", "native", "mock", "Serial.cpp"),
         os.path.join(PROJECT_ROOT, "src", "core", "DisplayArbiter.cpp"),
         os.path.join(PROJECT_ROOT, "src", "core", "EngineRegistry.cpp"),
+        os.path.join(PROJECT_ROOT, "src", "engines", "homeassistant", "GraphPayload.cpp"),
+        os.path.join(PROJECT_ROOT, "src", "engines", "homeassistant", "FeedPayloads.cpp"),
+        os.path.join(PROJECT_ROOT, "src", "engines", "homeassistant", "HaSession.cpp"),
         os.path.join(PROJECT_ROOT, "test", "native", "test_native_core.cpp"),
     ]
 

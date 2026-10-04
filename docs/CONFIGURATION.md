@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "display": { ... },
   "audio": { ... },
@@ -105,6 +106,21 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 
 > [!NOTE]
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
+
+---
+
+## 5.1 The `"data_mqtt"` Block (Home Assistant screen broker)
+
+The broker the `homeassistant` engine connects to **while it is on screen**. Only credentials: nothing connects or runs in the background, and it is completely separate from the `"mqtt"` arcade link above (which can take over the display).
+
+| Key | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `broker` | `String` | `""` | Broker IP/host (e.g. the Home Assistant Mosquitto add-on). |
+| `port` | `int` | `1883` | Broker port. |
+| `user` | `String` | `""` | Broker username (optional). |
+| `pass` | `String` | `""` | Broker password (optional). |
+
+Web UI: *System → MQTT & API → Data MQTT*. Flat keys on `/api/settings`: `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`; nested `data_mqtt` object on `/api/system`. The client id is `<wifi hostname>-data`.
 
 ---
 
@@ -496,6 +512,100 @@ The `gnews` engine provides a real-time live news ticker and breaking news bulle
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `homeassistant` (Home Assistant)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `arcadematrix/weather/local` | Comma-separated full MQTT topics, one page each, shown in this order. Up to 6 (4 on boards without PSRAM). |
+| `page_seconds` | `int` | `10` | Seconds per page (3 to 300) while the slot is on screen. |
+| `show_header` | `bool` | `true` | Graph title/summary line and values title row. |
+
+Pages published by Home Assistant over MQTT, cycling while the slot is on screen. Set the slot's rotation duration to the total you want, for example pages x `page_seconds`.
+
+- **Nothing runs in the background.** When the slot comes on screen the engine connects to the `data_mqtt` broker, subscribes to its topics and draws each **retained** message (so publish with `retain: true`); new messages update the pages live. When the slot leaves, it disconnects and frees all its memory.
+- While connecting it shows `CONNECTING`; if the broker cannot be reached, `NO CONNECTION`; a topic with no retained message 3 s after connecting shows `NO DATA` (all localized).
+- Each payload says what it is with `"type"`: `"graph"`, `"values"` or `"weather"`. Without it the shape decides (`series` = graph, `tiles` = values, `current`/`days` = weather). An empty payload (deleting a retained message) blanks its page.
+- Memory per activation: with PSRAM, payloads up to 8 KB and 288 points per graph series; without PSRAM (classic ESP32), 4 KB and 96 points (the newest are kept), and at most 4 topics.
+
+#### Graph page
+
+Draws a bar/area graph from a JSON payload (version 1):
+
+```json
+{
+  "v": 1,
+  "type": "graph",
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#502800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+- Data is **right-aligned**: the last point is the newest and sits in the rightmost slot; a shorter series leaves the left side empty. `slots` defaults to the longest series. Up to 4 series of 288 points (96 without PSRAM); `null` or non-numeric points count as 0 in a bar and leave a gap in a line.
+- `max`: top of the scale; absent or `<= min` = automatic (tallest stacked column). `stack: true` stacks the series bottom-up in order; `false` overlays them (later on top).
+- `bands`: background column ranges in slot indices `[from, to)`, e.g. utility peak hours, each with its own colour; up to 96 (past that the newest, highest `from`, are kept). `marks` (up to 8): dotted vertical lines at a slot's left edge, e.g. midnight. Colors are `#RRGGBB`.
+- Columns map to slots as `slot = x * slots / width`. 128x32: header rows 0-6, graph rows 8-31. 256x64: header at double size, graph rows 15-63 with a dim gridline at the middle of the y range.
+
+Version 1 also accepts (all optional, older payloads render unchanged):
+- `min`: bottom of the y axis (default 0, or automatic). With any `"style":"line"` series the automatic range is the data range padded by 5% (at least 0.5) each side.
+- series `"style": "line"`: 1 px line, `null` = gap (no join across it), drawn after the bars. Bars grow from the zero line, so negative values go down; `stack` applies to bar series only (positive and negative stacks apart). A dim zero line shows when 0 is inside the range and bars exist.
+- `"yaxis": true`: on panels at least 64 px tall, the range ends are printed as integers in a 3x5 font at the left edge and the plot moves right.
+- `°` in `title`/`summary` is drawn as the degree sign.
+- `title_short`: optional abbreviation, used only when the full `title` does not fit next to the summary.
+- `summary_color`: optional `#RRGGBB` for the summary text (default: the first series' colour), e.g. to show a live state.
+- `legend`: optional, up to 4 `{"text":"INSIDE","color":"#40A0FF"}` items (an item without a valid colour is skipped) drawn in the 3x5 font on one row at the bottom of the panel (under the plot), on panels at least 64 px tall only (ignored on 32 px panels). Items that do not fit are dropped from the end; words are never cut.
+
+#### Values page
+
+```json
+{"v":1,"type":"values","title":"HOME",
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...up to 4"]}
+```
+1-4 tiles; values are preformatted strings (the sign does no arithmetic). 1-3 tiles sit in columns, 4 in a 2x2 grid; each tile is stacked (label on top, value and unit under it) and centred. The largest font that fits is used. The full `label` is used when it fits, else the optional `label_short`, then a smaller font, then the label is cut; a value is never cut (its unit is dropped first).
+
+#### Weather page
+
+```json
+{"v":1,"type":"weather","units":"imperial",
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...up to 5"]}
+```
+A **NOW** page comes first: the live `current.temp` in white, with humidity and wind under it in grey (or the condition when both are missing). Then up to 5 forecast days (low/high, condition), day 0 being today. Conditions are Home Assistant's standard set (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); an unknown one is shown as received.
+
+A weather topic shows its NOW page and each forecast day as separate pages, `page_seconds` each. In °F the high is shown above the low (US convention). `current.wind_dir` (8-point compass, e.g. `"NE"`) adds the direction to the NOW page: `"41%  NE 9mph"`.
+
+#### Example: Home Assistant automation
+
+```yaml
+# Publish a retained graph page every 15 minutes
+- alias: "ArcadeMatrix - publish AC history"
+  triggers:
+    - trigger: time_pattern
+      minutes: "/15"
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: arcadematrix/graph/ac
+        retain: true
+        payload: >-
+          {{ {"v": 1, "type": "graph", "title": "AC 24H", "summary": "12.3kWh", "unit": "kW",
+              "slots": 96, "max": 6, "stack": true,
+              "series": [{"label": "UP", "color": "#2080FF",
+                          "data": state_attr('sensor.ac_history', 'up')},
+                         {"label": "DN", "color": "#00D0A0",
+                          "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
+```
+
+Instance example: `{"instance_id":"ha_home","engine_id":"homeassistant","config":{"topics":"arcadematrix/weather/local,arcadematrix/graph/ac,arcadematrix/values/energy","page_seconds":"10"}}`.
 
 ---
 
