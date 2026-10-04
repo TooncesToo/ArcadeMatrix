@@ -559,7 +559,7 @@ Draws a bar/area graph from a JSON payload (version 1):
 
 - Data is **right-aligned**: the last point is the newest and sits in the rightmost slot; a shorter series leaves the left side empty. `slots` defaults to the longest series. Up to 4 series of 288 points; `null` or non-numeric points count as 0 in a bar and leave a gap in a line.
 - `max`: top of the scale; absent or `<= min` = automatic (tallest stacked column). `stack: true` stacks the series bottom-up in order; `false` overlays them (later on top).
-- `bands`: background column ranges in slot indices `[from, to)`, e.g. utility peak hours. `marks`: dotted vertical lines at a slot's left edge, e.g. midnight. Colors are `#RRGGBB`.
+- `bands`: background column ranges in slot indices `[from, to)`, e.g. utility peak hours, each with its own colour; up to 96 (past that the newest, highest `from`, are kept). `marks` (up to 8): dotted vertical lines at a slot's left edge, e.g. midnight. Colors are `#RRGGBB`.
 - Columns map to slots as `slot = x * slots / width`. 128x32: header rows 0-6, graph rows 8-31. 256x64: header at double size, graph rows 15-63 with a dim gridline at the middle of the y range. Before any payload arrives the screen shows `NO DATA` (localized).
 
 Version 1 also accepts (all optional, older payloads render unchanged):

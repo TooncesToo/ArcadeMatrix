@@ -557,7 +557,7 @@ Trace un graphique en barres/aires à partir d'un message JSON (version 1) :
 
 - Les données sont **alignées à droite** : le dernier point est le plus récent et occupe la colonne la plus à droite ; une série plus courte laisse la gauche vide. `slots` vaut par défaut la longueur de la série la plus longue. Jusqu'à 4 séries de 288 points ; un point `null` ou non numérique compte pour 0 dans une barre et laisse un trou dans une ligne.
 - `max` : haut de l'échelle ; absent ou `<= min` = automatique (colonne empilée la plus haute). `stack: true` empile les séries de bas en haut dans l'ordre ; `false` les superpose (la suivante par-dessus).
-- `bands` : plages de colonnes en fond, en indices de slot `[from, to)`, par ex. les heures pleines du fournisseur d'électricité. `marks` : lignes verticales pointillées au bord gauche d'un slot, par ex. minuit. Couleurs en `#RRGGBB`.
+- `bands` : plages de colonnes en fond, en indices de slot `[from, to)`, par ex. les heures pleines du fournisseur d'électricité, chacune de sa couleur ; jusqu'à 96 (au-delà, les plus récentes, au `from` le plus haut, sont gardées). `marks` (jusqu'à 8) : lignes verticales pointillées au bord gauche d'un slot, par ex. minuit. Couleurs en `#RRGGBB`.
 - Les colonnes correspondent aux slots par `slot = x * slots / largeur`. 128x32 : en-tête lignes 0-6, graphique lignes 8-31. 256x64 : en-tête en taille double, graphique lignes 15-63 avec une ligne de repère discrète au milieu de la plage y. Avant le premier message, l'écran affiche `PAS DE DONNEES`.
 
 La version 1 accepte aussi (tout est optionnel, les anciens messages s'affichent à l'identique) :

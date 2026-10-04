@@ -559,7 +559,7 @@ Dibuja un gráfico de barras/áreas a partir de un mensaje JSON (versión 1):
 
 - Los datos se **alinean a la derecha**: el último punto es el más reciente y ocupa la columna más a la derecha; una serie más corta deja vacía la izquierda. `slots` toma por defecto la longitud de la serie más larga. Hasta 4 series de 288 puntos; un punto `null` o no numérico cuenta como 0 en una barra y deja un hueco en una línea.
 - `max`: tope de la escala; ausente o `<= min` = automático (columna apilada más alta). `stack: true` apila las series de abajo arriba en orden; `false` las superpone (la siguiente encima).
-- `bands`: rangos de columnas de fondo en índices de slot `[from, to)`, p. ej. las horas punta de la compañía eléctrica. `marks`: líneas verticales punteadas en el borde izquierdo de un slot, p. ej. medianoche. Colores en `#RRGGBB`.
+- `bands`: rangos de columnas de fondo en índices de slot `[from, to)`, p. ej. las horas punta de la compañía eléctrica, cada una con su color; hasta 96 (por encima se conservan las más recientes, con el `from` más alto). `marks` (hasta 8): líneas verticales punteadas en el borde izquierdo de un slot, p. ej. medianoche. Colores en `#RRGGBB`.
 - Las columnas se asignan a slots con `slot = x * slots / ancho`. 128x32: encabezado filas 0-6, gráfico filas 8-31. 256x64: encabezado a doble tamaño, gráfico filas 15-63 con una línea guía tenue en el centro del rango y. Antes del primer mensaje la pantalla muestra `SIN DATOS`.
 
 La versión 1 acepta además (todo opcional, los mensajes antiguos se ven igual):

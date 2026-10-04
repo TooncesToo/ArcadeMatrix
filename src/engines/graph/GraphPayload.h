@@ -19,7 +19,7 @@ namespace graph {
 
 static constexpr uint8_t MAX_SERIES = 4;
 static constexpr uint16_t MAX_POINTS = 288;
-static constexpr uint8_t MAX_BANDS = 8;
+static constexpr uint8_t MAX_BANDS = 96;   ///< one per 15-minute slot of a 24 h graph
 static constexpr uint8_t MAX_MARKS = 8;
 
 /// UTF-8 "°" is stored as this single byte so text widths stay one cell per character; the draw
