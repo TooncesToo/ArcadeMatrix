@@ -566,6 +566,8 @@ La version 1 accepte aussi (tout est optionnel, les anciens messages s'affichent
 - `"yaxis": true` : sur les panneaux d'au moins 64 px de haut, les bornes de la plage s'affichent en entiers (police 3x5) à gauche et le graphique se décale à droite.
 - `°` dans `title`/`summary` s'affiche comme le signe degré.
 - `title_short` : abréviation optionnelle, utilisée seulement si le `title` complet ne tient pas à côté du résumé.
+- `summary_color` : `#RRGGBB` optionnel pour le texte du résumé (par défaut la couleur de la première série), par ex. pour montrer un état en direct.
+- `legend` : optionnelle, jusqu'à 4 éléments `{"text":"INSIDE","color":"#40A0FF"}` (un élément sans couleur valide est ignoré) en police 3x5 sur une ligne sous l'en-tête, uniquement sur les panneaux d'au moins 64 px de haut (ignorée sur 32 px). Les éléments qui ne tiennent pas sont retirés par la fin ; aucun mot n'est coupé.
 
 Exemple d'automatisation Home Assistant (les deux attributs contiennent les 96 valeurs glissantes de 15 min) :
 

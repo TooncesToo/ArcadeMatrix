@@ -637,6 +637,24 @@ void test_graph_96_bands_and_newest_kept(void) {
     }
     TEST_ASSERT_EQUAL(4, minFrom);
     TEST_ASSERT_TRUE(has99);
+    for (int i = 1; i < g_graph.bandCount; i++) TEST_ASSERT_TRUE(g_graph.bands[i - 1].from <= g_graph.bands[i].from);
+}
+
+void test_graph_summary_color_and_legend(void) {
+    TEST_ASSERT_TRUE(parseGraph("{\"summary\":\"76\",\"series\":[]}"));
+    TEST_ASSERT_FALSE(g_graph.hasSummaryColor);
+    TEST_ASSERT_EQUAL(0, g_graph.legendCount);
+    TEST_ASSERT_TRUE(parseGraph("{\"summary_color\":\"#2060FF\",\"series\":[],\"legend\":["
+        "{\"text\":\"INSIDE\",\"color\":\"#40A0FF\"},{\"text\":\"NOCOLOR\"},{\"text\":\"\",\"color\":\"#FFFFFF\"},"
+        "{\"text\":\"OUTSIDE\",\"color\":\"#FF4020\"},{\"text\":\"SET\",\"color\":\"#5050A0\"},"
+        "{\"text\":\"COOL\",\"color\":\"#2060FF\"},{\"text\":\"EXTRA\",\"color\":\"#FFFFFF\"}]}"));
+    TEST_ASSERT_TRUE(g_graph.hasSummaryColor);
+    TEST_ASSERT_EQUAL_HEX8(0x60, g_graph.summaryColor.g);
+    TEST_ASSERT_EQUAL(4, g_graph.legendCount);              // no colour / empty text skipped, extra dropped
+    TEST_ASSERT_EQUAL_STRING("INSIDE", g_graph.legend[0].text);
+    TEST_ASSERT_EQUAL_HEX8(0xA0, g_graph.legend[0].color.g);
+    TEST_ASSERT_EQUAL_STRING("OUTSIDE", g_graph.legend[1].text);
+    TEST_ASSERT_EQUAL_STRING("COOL", g_graph.legend[3].text);
 }
 
 void test_feed_values_payload(void) {
@@ -751,6 +769,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_graph_negative_bars_and_zero_line);
     RUN_TEST(test_graph_lines_range_gaps_and_explicit_min_max);
     RUN_TEST(test_graph_96_bands_and_newest_kept);
+    RUN_TEST(test_graph_summary_color_and_legend);
     RUN_TEST(test_feed_values_payload);
     RUN_TEST(test_feed_weather_payload_and_conditions);
 
