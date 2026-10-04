@@ -7,6 +7,7 @@
 #include "../../include/core/EngineContract.h"
 #include "engines/graph/GraphPayload.h"
 #include "engines/graph/FeedPayloads.h"
+#include "engines/graph/TopicTable.h"
 #include <math.h>
 #include <string.h>
 
@@ -657,6 +658,88 @@ void test_graph_summary_color_and_legend(void) {
     TEST_ASSERT_EQUAL_STRING("COOL", g_graph.legend[3].text);
 }
 
+
+// ---- data feed topic slots (addendum 9) ----
+
+static bool refByList(const char* topic, void* ctx) {
+    for (const char* const* p = static_cast<const char* const*>(ctx); *p; p++) {
+        if (strcmp(*p, topic) == 0) return true;
+    }
+    return false;
+}
+
+static int claimNow(feed::TopicTable& t, const char* topic, uint32_t now, const char* const* refs,
+                    feed::TopicTable::Claim* how = nullptr) {
+    feed::TopicTable::Claim h;
+    int i = t.claim(topic, now, refByList, (void*)refs, &h);
+    if (h == feed::TopicTable::Claim::New || h == feed::TopicTable::Claim::Evicted) t.activate(i);
+    if (how) *how = h;
+    return i;
+}
+
+void test_topic_table_clear_frees_slot(void) {
+    feed::TopicTable t;
+    static const char* const none[] = {nullptr};
+    char name[32];
+    for (int i = 0; i < 8; i++) { snprintf(name, sizeof(name), "am/test/%d", i); claimNow(t, name, 100 + i, none); }
+    TEST_ASSERT_EQUAL(8, t.count());
+    int slot = t.find("am/test/3");
+    uint32_t seq = t.sequence(slot);
+    TEST_ASSERT_EQUAL(slot, t.release("am/test/3"));       // empty payload
+    TEST_ASSERT_EQUAL(7, t.count());
+    TEST_ASSERT_EQUAL(-1, t.find("am/test/3"));
+    TEST_ASSERT_FALSE(t.holds(slot, "am/test/3"));
+    TEST_ASSERT_TRUE(t.sequence(slot) != seq);              // a reader holding the index notices
+    TEST_ASSERT_EQUAL(-1, t.release("am/never"));
+    feed::TopicTable::Claim how;
+    TEST_ASSERT_EQUAL(slot, claimNow(t, "am/new", 200, none, &how));   // the freed slot is reused
+    TEST_ASSERT_EQUAL((int)feed::TopicTable::Claim::New, (int)how);
+    TEST_ASSERT_EQUAL(8, t.count());
+}
+
+void test_topic_table_evicts_oldest_unreferenced(void) {
+    feed::TopicTable t;
+    // ac (oldest) and cool_dn are on screens; test/1 is the oldest unreferenced one.
+    static const char* const refs[] = {"am/graph/ac", "am/graph/cool_dn", nullptr};
+    claimNow(t, "am/graph/ac", 10, refs);
+    claimNow(t, "am/test/1", 20, refs);
+    claimNow(t, "am/graph/cool_dn", 30, refs);
+    claimNow(t, "am/test/2", 40, refs);
+    claimNow(t, "am/test/3", 50, refs);
+    claimNow(t, "am/test/4", 60, refs);
+    claimNow(t, "am/test/5", 70, refs);
+    claimNow(t, "am/test/6", 80, refs);
+    t.publish(t.find("am/test/1"), 90);                     // fresh data: test/2 is now the oldest
+    int victim = t.find("am/test/2");
+    uint32_t seq = t.sequence(victim);
+    feed::TopicTable::Claim how;
+    TEST_ASSERT_EQUAL(victim, claimNow(t, "am/graph/cool_up", 100, refs, &how));
+    TEST_ASSERT_EQUAL((int)feed::TopicTable::Claim::Evicted, (int)how);
+    TEST_ASSERT_EQUAL(-1, t.find("am/test/2"));
+    TEST_ASSERT_TRUE(t.holds(victim, "am/graph/cool_up"));
+    TEST_ASSERT_TRUE(t.sequence(victim) != seq);
+    TEST_ASSERT_TRUE(t.find("am/graph/ac") >= 0);           // referenced: kept although oldest
+    TEST_ASSERT_EQUAL(8, t.count());
+    // Age, not raw time, decides: survives a millis() wrap.
+    TEST_ASSERT_EQUAL(t.find("am/test/3"), t.evictionCandidate(5u, refs[0] ? refByList : nullptr, (void*)refs));
+}
+
+void test_topic_table_full_and_all_referenced_refuses(void) {
+    feed::TopicTable t;
+    static const char* const refs[] = {"t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", nullptr};
+    for (int i = 0; i < 8; i++) claimNow(t, refs[i], i, refs);
+    feed::TopicTable::Claim how;
+    TEST_ASSERT_EQUAL(-1, claimNow(t, "t8", 100, refs, &how));
+    TEST_ASSERT_EQUAL((int)feed::TopicTable::Claim::Full, (int)how);
+    for (int i = 0; i < 8; i++) TEST_ASSERT_TRUE(t.find(refs[i]) >= 0);   // nothing a screen uses is evicted
+    TEST_ASSERT_EQUAL((int)feed::TopicTable::Claim::Existing, (int)(claimNow(t, "t5", 101, refs, &how), how));
+    char longTopic[200];
+    memset(longTopic, 'x', sizeof(longTopic) - 1);
+    longTopic[sizeof(longTopic) - 1] = '\0';
+    TEST_ASSERT_EQUAL(-1, claimNow(t, longTopic, 102, refs, &how));
+    TEST_ASSERT_EQUAL((int)feed::TopicTable::Claim::TooLong, (int)how);
+}
+
 void test_feed_values_payload(void) {
     TEST_ASSERT_TRUE(parseDoc("{\"v\":1,\"title\":\"ENERGY\",\"tiles\":["
         "{\"label\":\"HOUSE\",\"value\":\"2.8\",\"unit\":\"kW\",\"color\":\"#FFB000\"},"
@@ -774,6 +857,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_graph_lines_range_gaps_and_explicit_min_max);
     RUN_TEST(test_graph_96_bands_and_newest_kept);
     RUN_TEST(test_graph_summary_color_and_legend);
+    RUN_TEST(test_topic_table_clear_frees_slot);
+    RUN_TEST(test_topic_table_evicts_oldest_unreferenced);
+    RUN_TEST(test_topic_table_full_and_all_referenced_refuses);
     RUN_TEST(test_feed_values_payload);
     RUN_TEST(test_feed_weather_payload_and_conditions);
 

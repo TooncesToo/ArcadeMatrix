@@ -71,69 +71,60 @@ bool DataFeed::allocateStorage() {
     return true;
 }
 
-int DataFeed::findTopic(const char* topic) const {
-    if (!topic || !*topic) return -1;
-    for (int i = 0; i < MAX_TOPICS; i++) {
-        if (m_slots[i].ready.load(std::memory_order_acquire) && strcmp(m_slots[i].topic, topic) == 0) return i;
-    }
-    return -1;
-}
-
-uint32_t DataFeed::sequence(int slot) const {
-    if (slot < 0 || slot >= MAX_TOPICS) return 0;
-    return m_slots[slot].seq.load(std::memory_order_acquire);
-}
-
 feed::Kind DataFeed::kindOf(int slot) const {
     if (slot < 0 || slot >= MAX_TOPICS) return feed::Kind::None;
     const Slot& s = m_slots[slot];
-    if (s.seq.load(std::memory_order_acquire) == 0) return feed::Kind::None;
     return (feed::Kind)s.kinds[s.idx.load(std::memory_order_acquire)].load(std::memory_order_acquire);
 }
 
 template <typename T>
-bool DataFeed::copyKind(int slot, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const {
+bool DataFeed::copyKind(int slot, const char* topic, feed::Kind kind, T* const Slot::*arr, T& out, uint32_t& seqOut) const {
     if (slot < 0 || slot >= MAX_TOPICS) return false;
     const Slot& s = m_slots[slot];
     // Double buffer plus a sequence check, no lock: Core 0 only ever writes the buffer that is not
-    // published, and bumps the sequence after each publication. If the sequence moved while we
-    // copied, the writer may have reached the buffer we were reading, so the copy is discarded.
-    uint32_t before = s.seq.load(std::memory_order_acquire);
-    if (before == 0 || !(s.*arr)) return false;
+    // published and bumps the sequence after each publication, and also whenever the slot is freed
+    // or given to another topic. Checking the topic inside that window means a copy taken while the
+    // slot changed hands is discarded, never shown under the wrong topic.
+    uint32_t before = m_table.sequence(slot);
+    if (!(s.*arr) || !m_table.holds(slot, topic)) return false;
     uint8_t idx = s.idx.load(std::memory_order_acquire);
     if (s.kinds[idx].load(std::memory_order_acquire) != (uint8_t)kind) return false;
     memcpy(&out, &(s.*arr)[idx], sizeof(T));
     std::atomic_thread_fence(std::memory_order_acquire);
-    uint32_t after = s.seq.load(std::memory_order_acquire);
+    uint32_t after = m_table.sequence(slot);
     if (before != after) return false;
     seqOut = after;
     return true;
 }
 
-bool DataFeed::copyGraph(int slot, graph::GraphData& out, uint32_t& seqOut) const {
-    return copyKind(slot, feed::Kind::Graph, &Slot::graphs, out, seqOut);
+bool DataFeed::copyGraph(int slot, const char* topic, graph::GraphData& out, uint32_t& seqOut) const {
+    return copyKind(slot, topic, feed::Kind::Graph, &Slot::graphs, out, seqOut);
 }
 
-bool DataFeed::copyValues(int slot, feed::ValuesData& out, uint32_t& seqOut) const {
-    return copyKind(slot, feed::Kind::Values, &Slot::values, out, seqOut);
+bool DataFeed::copyValues(int slot, const char* topic, feed::ValuesData& out, uint32_t& seqOut) const {
+    return copyKind(slot, topic, feed::Kind::Values, &Slot::values, out, seqOut);
 }
 
-bool DataFeed::copyWeather(int slot, feed::WeatherFeed& out, uint32_t& seqOut) const {
-    return copyKind(slot, feed::Kind::Weather, &Slot::weather, out, seqOut);
+bool DataFeed::copyWeather(int slot, const char* topic, feed::WeatherFeed& out, uint32_t& seqOut) const {
+    return copyKind(slot, topic, feed::Kind::Weather, &Slot::weather, out, seqOut);
 }
 
-int DataFeed::claimSlot(const char* topic) {
-    if (strlen(topic) >= MAX_TOPIC_LEN) return -1;
-    for (int i = 0; i < MAX_TOPICS; i++) {
-        Slot& s = m_slots[i];
-        if (s.ready.load(std::memory_order_relaxed)) continue;
-        strncpy(s.topic, topic, MAX_TOPIC_LEN - 1);
-        s.topic[MAX_TOPIC_LEN - 1] = '\0';
-        s.ready.store(1, std::memory_order_release);   // topic is final before anyone matches it
-        m_topicCount.fetch_add(1, std::memory_order_release);
-        return i;
+// Feed task only (Core 0): does a configured screen read this topic? Graph and Values screens by
+// their `topic`, weather screens only with the Home Assistant source. Such topics are never evicted.
+bool DataFeed::topicReferenced(const char* topic, void* ctx) {
+    (void)ctx;
+    ConfigSnapshotGuard guard = config.acquireSnapshot();
+    for (const auto& inst : guard->instances) {
+        const bool feedScreen = inst.engine_id == "graph" || inst.engine_id == "values" ||
+                                (inst.engine_id == "weather" && inst.config.getString("source", "owm").equalsIgnoreCase("ha"));
+        if (!feedScreen) continue;
+        const char* def = inst.engine_id == "graph" ? "arcadematrix/graph/ac"
+                        : inst.engine_id == "values" ? "arcadematrix/values/energy" : "arcadematrix/weather/local";
+        String t = inst.config.getString("topic", def);
+        t.trim();
+        if (t == topic) return true;
     }
-    return -1;
+    return false;
 }
 
 void DataFeed::onMessage(char* topic, uint8_t* payload, unsigned int length) {
@@ -141,6 +132,12 @@ void DataFeed::onMessage(char* topic, uint8_t* payload, unsigned int length) {
 }
 
 void DataFeed::handleMessage(const char* topic, const uint8_t* payload, unsigned int length) {
+    // An empty payload deletes a retained message: forget the topic and free its slot. Screens on it
+    // see the sequence change, find the slot gone and go back to their no-data state.
+    if (length == 0) {
+        if (m_table.release(topic) >= 0) LOGI("DataFeed", "topic %s cleared; %u in use", topic, (unsigned)m_table.count());
+        return;
+    }
     if (length > MAX_PAYLOAD) {
         if (!m_warnedSize) {
             LOGW("DataFeed", "payload on %s is %u bytes; the limit is %u, dropped", topic, length, (unsigned)MAX_PAYLOAD);
@@ -148,14 +145,30 @@ void DataFeed::handleMessage(const char* topic, const uint8_t* payload, unsigned
         }
         return;
     }
-    int slot = findTopic(topic);
-    if (slot < 0) slot = claimSlot(topic);
+    feed::TopicTable::Claim how;
+    const char* evicted = nullptr;
+    char evictedTopic[MAX_TOPIC_LEN];
+    {
+        // Name of the slot that would be evicted, for the log line (claim() overwrites it).
+        int victim = m_table.find(topic) < 0 && m_table.count() >= MAX_TOPICS
+                   ? m_table.evictionCandidate(millis(), topicReferenced, nullptr) : -1;
+        if (victim >= 0) { strlcpy(evictedTopic, m_table.topicAt(victim), sizeof(evictedTopic)); evicted = evictedTopic; }
+    }
+    const int slot = m_table.claim(topic, millis(), topicReferenced, nullptr, &how);
     if (slot < 0) {
-        if (!m_warnedFull) {
-            LOGW("DataFeed", "no room for topic %s (%u topics max)", topic, (unsigned)MAX_TOPICS);
-            m_warnedFull = true;
+        if (strcmp(m_lastRefused, topic) != 0) {   // once per topic, not on every retained repeat
+            strlcpy(m_lastRefused, topic, sizeof(m_lastRefused));
+            if (how == feed::TopicTable::Claim::TooLong) LOGW("DataFeed", "topic %s is too long; ignored", topic);
+            else LOGW("DataFeed", "no room for topic %s: all %u topics are used by screens", topic, (unsigned)MAX_TOPICS);
         }
         return;
+    }
+    if (how == feed::TopicTable::Claim::New || how == feed::TopicTable::Claim::Evicted) {
+        // A fresh occupant starts with no payload, so nothing of the previous topic can show.
+        m_slots[slot].kinds[0].store((uint8_t)feed::Kind::None, std::memory_order_release);
+        m_slots[slot].kinds[1].store((uint8_t)feed::Kind::None, std::memory_order_release);
+        m_table.activate(slot);
+        if (how == feed::TopicTable::Claim::Evicted && evicted) LOGI("DataFeed", "topic %s evicted for %s", evicted, topic);
     }
     Slot& s = m_slots[slot];
 
@@ -181,7 +194,7 @@ void DataFeed::handleMessage(const char* topic, const uint8_t* payload, unsigned
     if (!ok) return;
     s.kinds[next].store((uint8_t)kind, std::memory_order_release);
     s.idx.store(next, std::memory_order_release);
-    s.seq.fetch_add(1, std::memory_order_acq_rel);
+    m_table.publish(slot, millis());
     LOGD("DataFeed", "payload kind %u on %s", (unsigned)kind, topic);
 }
 

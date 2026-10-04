@@ -124,6 +124,7 @@ A second MQTT connection, separate from the `"mqtt"` arcade sync above, that onl
 
 - The client id is `<wifi hostname>-data`, so several signs can share one broker.
 - The last payload of up to **8 topics** is kept, **8192 bytes** each (larger payloads are dropped and logged once). Publish **retained** messages so a sign has data straight after a reboot.
+- An **empty** payload on a topic (how MQTT deletes a retained message) frees its slot; screens on it go back to `NO DATA`. When all 8 slots are taken, a new topic replaces the longest-unchanged topic that no screen uses (graph / values / Home Assistant weather `topic`); if every stored topic is in use, the new one is ignored and logged once.
 - `GET /api/status` reports `data_mqtt_connected` and `data_mqtt_topics`.
 - Web UI: *System → MQTT & API → Data Feed MQTT*. Flat keys on `/api/settings`: `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix`; nested `data_mqtt` object on `/api/system`.
 - Needs PSRAM (the payload store lives there); on boards without PSRAM the feed is not started.

@@ -124,6 +124,7 @@ Una segunda conexión MQTT, separada de la sincronización arcade `"mqtt"` de ar
 
 - El id de cliente es `<hostname wifi>-data`, así que varios paneles pueden compartir un broker.
 - Se conserva el último mensaje de hasta **8 topics**, **8192 bytes** cada uno (los mayores se descartan y se registran una vez). Publique mensajes **retenidos** para que un panel tenga datos nada más reiniciar.
+- Un mensaje **vacío** en un topic (la forma de MQTT de borrar un mensaje retenido) libera su hueco; las pantallas que lo usan vuelven a `SIN DATOS`. Con los 8 huecos ocupados, un topic nuevo sustituye al que lleva más tiempo sin cambiar y no usa ninguna pantalla (`topic` de gráficos, valores y clima de Home Assistant); si todos están en uso, el nuevo se ignora y se registra una vez.
 - `GET /api/status` informa `data_mqtt_connected` y `data_mqtt_topics`.
 - Interfaz Web: *Sistema → MQTT & API → MQTT de Datos*. Claves planas en `/api/settings`: `data_mqtt_enabled`, `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`, `data_mqtt_prefix`; objeto `data_mqtt` anidado en `/api/system`.
 - Requiere PSRAM (los mensajes se guardan allí); en placas sin PSRAM el flujo no se inicia.
