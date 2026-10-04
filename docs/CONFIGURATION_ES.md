@@ -15,6 +15,7 @@ El sistema de configuración se basa exclusivamente en un único archivo `config
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "display": { ... },
   "audio": { ... },
@@ -105,6 +106,21 @@ El daemon de sincronización puede instalarse en la consola (Recalbox, Batocera,
 
 > [!NOTE]
 > Para Batocera, se requiere la versión **v33 o superior** para el cambio dinámico de marquesinas durante la navegación (hooks `game-selected` y `system-selected`). Batocera v32 y versiones anteriores solo activan eventos de inicio/parada de juego. Recalbox es compatible en todas sus versiones.
+
+---
+
+## 5.1 El Bloque `"data_mqtt"` (broker de la pantalla Home Assistant)
+
+El broker al que se conecta el motor `homeassistant` **mientras se muestra**. Solo credenciales: nada se conecta ni se ejecuta en segundo plano, y es totalmente independiente del enlace arcade `"mqtt"` de arriba (que puede tomar el control de la pantalla).
+
+| Clave | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `broker` | `String` | `""` | IP/host del broker (p. ej. el complemento Mosquitto de Home Assistant). |
+| `port` | `int` | `1883` | Puerto del broker. |
+| `user` | `String` | `""` | Usuario del broker (opcional). |
+| `pass` | `String` | `""` | Contraseña del broker (opcional). |
+
+Interfaz Web: *Sistema → MQTT & API → MQTT de Datos*. Claves planas en `/api/settings`: `data_mqtt_broker`, `data_mqtt_port`, `data_mqtt_user`, `data_mqtt_pass`; objeto `data_mqtt` anidado en `/api/system`. El id de cliente es `<hostname wifi>-data`.
 
 ---
 
@@ -330,7 +346,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | :--- | :--- | :--- | :--- | :--- |
 | `api_key` | `String` | `""` | Clave API gratuita | Clave API de OpenWeatherMap (gratis en [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Texto | Ubicación de la ciudad para el pronóstico (ver guía abajo). |
-| `units` | `Options` | `metric` | `metric`, `imperial` | Unidad de temperatura: `metric` para Celsius (°C) o `imperial` para Fahrenheit (°F). |
+| `units` | `Options` | `metric` | `metric`, `imperial` | Unidad de temperatura: `metric` para Celsius (°C) o `imperial` para Fahrenheit (°F). Las temperaturas llevan el signo de grado ("90°F"); en °F la máxima se muestra encima de la mínima (convención de EE. UU.). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Idioma de las etiquetas de días (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal de píxeles. |
 | `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical de píxeles. |
@@ -496,6 +512,100 @@ El motor `gnews` muestra un teletipo de noticias en tiempo real alimentado por l
 | Campo | Tipo | Predeterminado | Descripción |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Motor interno de sincronización de marquesinas Pixelcade / Recalbox / Batocera recibidas mediante MQTT o Webhook. |
+
+### Motor: `homeassistant` (Home Assistant)
+| Campo | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `arcadematrix/weather/local` | Topics MQTT completos separados por comas, una página cada uno, en este orden. Hasta 6 (4 en placas sin PSRAM). |
+| `page_seconds` | `int` | `10` | Segundos por página (3 a 300) mientras el hueco se muestra. |
+| `show_header` | `bool` | `true` | Línea de título/resumen de los gráficos y fila de título de los valores. |
+
+Páginas publicadas por Home Assistant vía MQTT, que se alternan mientras el hueco se muestra. Ajuste la duración del hueco en la rotación al total deseado, por ejemplo páginas x `page_seconds`.
+
+- **Nada se ejecuta en segundo plano.** Cuando el hueco aparece, el motor se conecta al broker `data_mqtt`, se suscribe a sus topics y muestra cada mensaje **retenido** (publique con `retain: true`); los mensajes nuevos actualizan las páginas en vivo. Cuando el hueco termina, se desconecta y libera toda su memoria.
+- Mientras conecta muestra `CONECTANDO`; si el broker no responde, `SIN CONEXION`; un topic sin mensaje retenido 3 s después de conectar muestra `SIN DATOS`.
+- Cada mensaje indica lo que es con `"type"`: `"graph"`, `"values"` o `"weather"`. Sin él decide la forma (`series` = gráfico, `tiles` = valores, `current`/`days` = clima). Un mensaje vacío (borrado de un mensaje retenido) vacía su página.
+- Memoria por activación: con PSRAM, mensajes de hasta 8 KB y 288 puntos por serie; sin PSRAM (ESP32 clásico), 4 KB y 96 puntos (se conservan los más recientes), y 4 topics como máximo.
+
+#### Página de gráfico
+
+Dibuja un gráfico de barras/áreas a partir de un mensaje JSON (versión 1):
+
+```json
+{
+  "v": 1,
+  "type": "graph",
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 3.9]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.0, 1.7]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#502800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+- Los datos se **alinean a la derecha**: el último punto es el más reciente y ocupa la columna más a la derecha; una serie más corta deja vacía la izquierda. `slots` toma por defecto la longitud de la serie más larga. Hasta 4 series de 288 puntos (96 sin PSRAM); un punto `null` o no numérico cuenta como 0 en una barra y deja un hueco en una línea.
+- `max`: tope de la escala; ausente o `<= min` = automático (columna apilada más alta). `stack: true` apila las series de abajo arriba en orden; `false` las superpone (la siguiente encima).
+- `bands`: rangos de columnas de fondo en índices de slot `[from, to)`, p. ej. las horas punta de la compañía eléctrica, cada una con su color; hasta 96 (por encima se conservan las más recientes, con el `from` más alto). `marks` (hasta 8): líneas verticales punteadas en el borde izquierdo de un slot, p. ej. medianoche. Colores en `#RRGGBB`.
+- Las columnas se asignan a slots con `slot = x * slots / ancho`. 128x32: encabezado filas 0-6, gráfico filas 8-31. 256x64: encabezado a doble tamaño, gráfico filas 15-63 con una línea guía tenue en el centro del rango y.
+
+La versión 1 acepta además (todo opcional, los mensajes antiguos se ven igual):
+- `min`: base del eje y (0 por defecto, o automático). Con alguna serie `"style":"line"`, el rango automático es el de los datos ampliado un 5 % (al menos 0,5) por cada lado.
+- `"style": "line"` por serie: línea de 1 px, `null` = hueco (sin unión), dibujada después de las barras. Las barras parten de la línea cero y los negativos bajan; `stack` solo afecta a barras (pilas positivas y negativas por separado). Aparece una línea cero tenue cuando 0 está dentro del rango y hay barras.
+- `"yaxis": true`: en paneles de al menos 64 px de alto, los extremos del rango se muestran como enteros (fuente 3x5) a la izquierda y el gráfico se desplaza a la derecha.
+- `°` en `title`/`summary` se dibuja como el signo de grado.
+- `title_short`: abreviatura opcional, usada solo si el `title` completo no cabe junto al resumen.
+- `summary_color`: `#RRGGBB` opcional para el texto del resumen (por defecto el color de la primera serie), p. ej. para mostrar un estado en vivo.
+- `legend`: opcional, hasta 4 elementos `{"text":"INSIDE","color":"#40A0FF"}` (se omite un elemento sin color válido) en fuente 3x5 en una fila en la parte inferior del panel (bajo el gráfico), solo en paneles de al menos 64 px de alto (se ignora en 32 px). Los elementos que no caben se quitan por el final; nunca se corta una palabra.
+
+#### Página de valores
+
+```json
+{"v":1,"type":"values","title":"HOME",
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DN","value":"76","unit":"°F","color":"#40C0FF","label_color":"#808080"}, "...hasta 4"]}
+```
+1 a 4 mosaicos; los valores son cadenas ya formateadas (el panel no calcula nada). 1 a 3 mosaicos en columnas, 4 en una cuadrícula 2x2; cada mosaico se apila (etiqueta arriba, valor y unidad debajo) y se centra. Se usa la fuente más grande que cabe. Se usa la `label` completa si cabe, si no la `label_short` opcional, luego una fuente menor y por último se recorta la etiqueta; un valor nunca se recorta (primero se quita su unidad).
+
+#### Página de clima
+
+```json
+{"v":1,"type":"weather","units":"imperial",
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny","precip_prob":0}, "...hasta 5"]}
+```
+Primero aparece una página **AHORA**: `current.temp` en vivo en blanco, con la humedad y el viento debajo en gris (o la condición si faltan ambos). Después hasta 5 días de pronóstico (mín/máx, condición), siendo el día 0 hoy. Las condiciones son las estándar de Home Assistant (`sunny`, `clear-night`, `partlycloudy`, `cloudy`, `fog`, `rainy`, `pouring`, `lightning`, `lightning-rainy`, `snowy`, `snowy-rainy`, `hail`, `windy`, `windy-variant`, `exceptional`); una desconocida se muestra tal cual.
+
+Un topic de clima muestra su página AHORA y cada día de pronóstico como páginas separadas, `page_seconds` cada una. En °F la máxima se muestra encima de la mínima (convención de EE. UU.). `current.wind_dir` (rosa de 8 puntos, p. ej. `"NE"`) añade la dirección a la página AHORA: `"41%  NE 9mph"`.
+
+#### Ejemplo: automatización de Home Assistant
+
+```yaml
+# Publicar una página de gráfico retenida cada 15 minutos
+- alias: "ArcadeMatrix - publish AC history"
+  triggers:
+    - trigger: time_pattern
+      minutes: "/15"
+  actions:
+    - action: mqtt.publish
+      data:
+        topic: arcadematrix/graph/ac
+        retain: true
+        payload: >-
+          {{ {"v": 1, "type": "graph", "title": "AC 24H", "summary": "12.3kWh", "unit": "kW",
+              "slots": 96, "max": 6, "stack": true,
+              "series": [{"label": "UP", "color": "#2080FF",
+                          "data": state_attr('sensor.ac_history', 'up')},
+                         {"label": "DN", "color": "#00D0A0",
+                          "data": state_attr('sensor.ac_history', 'dn')}]} | to_json }}
+```
+
+Ejemplo de instancia: `{"instance_id":"ha_home","engine_id":"homeassistant","config":{"topics":"arcadematrix/weather/local,arcadematrix/graph/ac,arcadematrix/values/energy","page_seconds":"10"}}`.
 
 ---
 
