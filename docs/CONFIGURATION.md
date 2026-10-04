@@ -568,6 +568,8 @@ Version 1 also accepts (all optional, older payloads render unchanged):
 - `"yaxis": true`: on panels at least 64 px tall, the range ends are printed as integers in a 3x5 font at the left edge and the plot moves right.
 - `°` in `title`/`summary` is drawn as the degree sign.
 - `title_short`: optional abbreviation, used only when the full `title` does not fit next to the summary.
+- `summary_color`: optional `#RRGGBB` for the summary text (default: the first series' colour), e.g. to show a live state.
+- `legend`: optional, up to 4 `{"text":"INSIDE","color":"#40A0FF"}` items (an item without a valid colour is skipped) drawn in the 3x5 font on one row under the header, on panels at least 64 px tall only (ignored on 32 px panels). Items that do not fit are dropped from the end; words are never cut.
 
 Example Home Assistant automation (the two attributes hold the rolling 96 x 15 min values):
 

@@ -95,7 +95,8 @@ void GraphEngine::drawHeader(const graph::Layout& layout) {
     }
     panel_text::print(m_matrix, layout.title.x, layout.title.y, title, size, m_matrix->color565(255, 255, 255), clip);
     if (summaryW) {
-        uint16_t c = g.seriesCount ? color(g.series[0].color) : m_matrix->color565(255, 255, 255);
+        uint16_t c = g.hasSummaryColor ? color(g.summaryColor)
+                   : g.seriesCount ? color(g.series[0].color) : m_matrix->color565(255, 255, 255);
         panel_text::print(m_matrix, summaryX, layout.title.y, g.summary, size, c);
     }
 }
@@ -106,7 +107,11 @@ void GraphEngine::drawGraph() {
     if (layout.header) drawHeader(layout);
 
     int px = layout.plot.x, pw = layout.plot.w;
-    const int py = layout.plot.y, ph = layout.plot.h;
+    // Legend (tall panels only): one tiny-font row where the plot used to start; the plot moves down 7.
+    const bool legend = g.legendCount > 0 && m_matrix->height() >= 64;
+    const int legendY = layout.plot.y;
+    const int py = layout.plot.y + (legend ? 7 : 0);
+    const int ph = layout.plot.h - (legend ? 7 : 0);
     if (pw <= 0 || ph <= 0 || g.slots == 0) return;
     const int base = py + ph - 1;
     const graph::Range range = graph::yRange(g);
@@ -127,6 +132,17 @@ void GraphEngine::drawGraph() {
         px = lw + 1;
         pw = m_matrix->width() - px;
         if (pw <= 0) return;
+    }
+    if (legend) {
+        // Items from the plot's left edge, 8 px apart; the first that would pass the right edge is
+        // dropped with every item after it (words are never cut).
+        int lx = px;
+        for (uint8_t i = 0; i < g.legendCount; i++) {
+            const int w = panel_text::width(g.legend[i].text, panel_text::TINY);
+            if (lx + w > m_matrix->width()) break;
+            panel_text::print(m_matrix, lx, legendY, g.legend[i].text, panel_text::TINY, color(g.legend[i].color));
+            lx += w + 8;
+        }
     }
 
     // 1. Bands: full-height background over their slot range.

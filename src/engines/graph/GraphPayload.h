@@ -21,6 +21,7 @@ static constexpr uint8_t MAX_SERIES = 4;
 static constexpr uint16_t MAX_POINTS = 288;
 static constexpr uint8_t MAX_BANDS = 96;   ///< one per 15-minute slot of a 24 h graph
 static constexpr uint8_t MAX_MARKS = 8;
+static constexpr uint8_t MAX_LEGEND = 4;
 
 /// UTF-8 "°" is stored as this single byte so text widths stay one cell per character; the draw
 /// code renders it as a small ring (the built-in font has no reliable degree glyph).
@@ -38,12 +39,15 @@ struct Series {
 
 struct Band { uint16_t from, to; Rgb color; };   ///< slot range [from, to)
 struct Mark { uint16_t at; Rgb color; };
+struct LegendItem { char text[16]; Rgb color; };   ///< drawn in the tiny font on tall panels
 
 struct GraphData {
     bool valid;
     char title[24];
     char titleShort[24];       ///< optional abbreviation, used when the full title does not fit
     char summary[16];
+    bool hasSummaryColor;      ///< `summary_color` given; otherwise the first series' colour
+    Rgb summaryColor;
     char unit[8];
     uint16_t slots;            ///< x positions; data is right-aligned into them
     float min;                 ///< y-axis bottom when given (hasMin)
@@ -54,9 +58,11 @@ struct GraphData {
     uint8_t seriesCount;
     uint8_t bandCount;
     uint8_t markCount;
+    uint8_t legendCount;
     Series series[MAX_SERIES];
     Band bands[MAX_BANDS];
     Mark marks[MAX_MARKS];
+    LegendItem legend[MAX_LEGEND];
 };
 
 /// Parses "#RRGGBB" (or "RRGGBB"); returns false and leaves `out` alone on anything else.

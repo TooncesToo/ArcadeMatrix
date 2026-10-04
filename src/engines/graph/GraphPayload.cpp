@@ -73,6 +73,8 @@ bool parseDocument(const JsonDocument& doc, GraphData& out) {
     copyPanelText(out.title, sizeof(out.title), doc["title"] | "");
     copyPanelText(out.titleShort, sizeof(out.titleShort), doc["title_short"] | "");
     copyPanelText(out.summary, sizeof(out.summary), doc["summary"] | "");
+    out.summaryColor = {0xFF, 0xFF, 0xFF};
+    out.hasSummaryColor = parseHexColor(doc["summary_color"] | "", out.summaryColor);
     copyPanelText(out.unit, sizeof(out.unit), doc["unit"] | "");
     out.hasMin = doc["min"].is<float>();
     out.min = out.hasMin ? doc["min"].as<float>() : 0.0f;
@@ -136,6 +138,13 @@ bool parseDocument(const JsonDocument& doc, GraphData& out) {
         }
         if (band.from > out.bands[oldest].from) out.bands[oldest] = band;
     }
+    // Drawn in ascending `from` order, so a later band wins where two overlap (insertion sort, <= 96).
+    for (uint8_t i = 1; i < out.bandCount; i++) {
+        Band b = out.bands[i];
+        int j = i - 1;
+        while (j >= 0 && out.bands[j].from > b.from) { out.bands[j + 1] = out.bands[j]; j--; }
+        out.bands[j + 1] = b;
+    }
 
     out.markCount = 0;
     for (JsonObjectConst m : doc["marks"].as<JsonArrayConst>()) {
@@ -147,6 +156,15 @@ bool parseDocument(const JsonDocument& doc, GraphData& out) {
         dst.color = {0x40, 0x40, 0x40};
         parseHexColor(m["color"] | "", dst.color);
         out.markCount++;
+    }
+
+    out.legendCount = 0;
+    for (JsonObjectConst l : doc["legend"].as<JsonArrayConst>()) {
+        if (out.legendCount >= MAX_LEGEND) break;
+        LegendItem& dst = out.legend[out.legendCount];
+        copyPanelText(dst.text, sizeof(dst.text), l["text"] | "");
+        if (!dst.text[0] || !parseHexColor(l["color"] | "", dst.color)) continue;   // empty or bad colour: skip
+        out.legendCount++;
     }
 
     out.valid = true;
