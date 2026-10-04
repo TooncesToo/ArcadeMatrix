@@ -1,4 +1,5 @@
 #include "WeatherEngine.h"
+#include "renderers/WeatherIcon.h"
 #include "../core/ConfigLoader.h"
 #include "../core/Logger.h"
 #include <WiFi.h>
@@ -246,61 +247,7 @@ void WeatherEngine::updateWeather(const String& apiKey, const String& city, cons
 }
 
 void WeatherEngine::drawIcon(const String& icon, int x, int y, int scale) {
-    // 24x24 pixel design, scaled by an integer factor for larger panels.
-    const int s = max(1, scale);
-    auto X = [&](int v) { return x + v * s; };
-    auto Y = [&](int v) { return y + v * s; };
-    auto line = [&](int x0, int y0, int x1, int y1, uint16_t c) {
-        // A scaled 1-px line becomes an s-px thick stroke: draw s parallel offsets.
-        for (int o = 0; o < s; o++) matrix->drawLine(X(x0) + o, Y(y0), X(x1) + o, Y(y1), c);
-    };
-    if (icon.indexOf("01") != -1) { // Sun
-        matrix->fillCircle(X(12), Y(12), 6 * s, matrix->color565(255, 255, 0));
-        uint16_t ray = matrix->color565(255, 200, 0);
-        line(12, 2, 12, 4, ray);
-        line(12, 20, 12, 22, ray);
-        line(2, 12, 4, 12, ray);
-        line(20, 12, 22, 12, ray);
-        line(5, 5, 7, 7, ray);
-        line(19, 19, 17, 17, ray);
-        line(19, 5, 17, 7, ray);
-        line(5, 19, 7, 17, ray);
-    } else if (icon.indexOf("02") != -1 || icon.indexOf("03") != -1 || icon.indexOf("04") != -1) { // Clouds
-        if (icon.indexOf("02") != -1) { // Sun behind cloud
-            matrix->fillCircle(X(8), Y(8), 4 * s, matrix->color565(255, 255, 0));
-        }
-        matrix->fillCircle(X(8), Y(14), 5 * s, matrix->color565(200, 200, 200));
-        matrix->fillCircle(X(14), Y(11), 6 * s, matrix->color565(255, 255, 255));
-        matrix->fillCircle(X(20), Y(14), 5 * s, matrix->color565(200, 200, 200));
-        matrix->fillRect(X(8), Y(14), 12 * s, 6 * s, matrix->color565(200, 200, 200));
-    } else if (icon.indexOf("09") != -1 || icon.indexOf("10") != -1) { // Rain
-        matrix->fillCircle(X(8), Y(10), 5 * s, matrix->color565(150, 150, 150));
-        matrix->fillCircle(X(14), Y(8), 6 * s, matrix->color565(200, 200, 200));
-        matrix->fillCircle(X(20), Y(10), 5 * s, matrix->color565(150, 150, 150));
-        matrix->fillRect(X(8), Y(10), 12 * s, 6 * s, matrix->color565(150, 150, 150));
-        uint16_t drop = matrix->color565(0, 150, 255);
-        line(8, 18, 6, 22, drop);
-        line(14, 18, 12, 22, drop);
-        line(20, 18, 18, 22, drop);
-    } else if (icon.indexOf("11") != -1) { // Thunder
-        matrix->fillCircle(X(8), Y(10), 5 * s, matrix->color565(100, 100, 100));
-        matrix->fillCircle(X(14), Y(8), 6 * s, matrix->color565(150, 150, 150));
-        matrix->fillCircle(X(20), Y(10), 5 * s, matrix->color565(100, 100, 100));
-        matrix->fillRect(X(8), Y(10), 12 * s, 6 * s, matrix->color565(100, 100, 100));
-        uint16_t bolt = matrix->color565(255, 255, 0);
-        line(14, 16, 10, 20, bolt);
-        line(10, 20, 16, 20, bolt);
-        line(16, 20, 12, 24, bolt);
-    } else if (icon.indexOf("13") != -1) { // Snow
-        uint16_t white = matrix->color565(255, 255, 255);
-        matrix->fillCircle(X(14), Y(14), 2 * s, white);
-        line(14, 8, 14, 20, white);
-        line(8, 14, 20, 14, white);
-        line(10, 10, 18, 18, white);
-        line(18, 10, 10, 18, white);
-    } else { // Unknown
-        matrix->fillCircle(X(12), Y(12), 6 * s, matrix->color565(0, 255, 0)); // Green dot
-    }
+    WeatherIcon::draw(matrix, icon.c_str(), x, y, scale);
 }
 
 bool WeatherEngine::loop() {
