@@ -116,16 +116,25 @@ bool parseDocument(const JsonDocument& doc, GraphData& out) {
     if (slots > MAX_POINTS) slots = MAX_POINTS;
     out.slots = (uint16_t)slots;
 
+    // Past the cap the NEWEST bands win (highest `from`): on a right-aligned graph those are the
+    // recent hours, which matter most. Once full, a newer band replaces the oldest one held.
     out.bandCount = 0;
     for (JsonObjectConst b : doc["bands"].as<JsonArrayConst>()) {
-        if (out.bandCount >= MAX_BANDS) break;
-        Band& dst = out.bands[out.bandCount];
-        dst.from = clampIndex(b["from"] | 0L, out.slots);
-        dst.to = clampIndex(b["to"] | 0L, out.slots);
-        if (dst.to <= dst.from) continue;
-        dst.color = {0x50, 0x28, 0x00};
-        parseHexColor(b["color"] | "", dst.color);
-        out.bandCount++;
+        Band band;
+        band.from = clampIndex(b["from"] | 0L, out.slots);
+        band.to = clampIndex(b["to"] | 0L, out.slots);
+        if (band.to <= band.from) continue;
+        band.color = {0x50, 0x28, 0x00};
+        parseHexColor(b["color"] | "", band.color);
+        if (out.bandCount < MAX_BANDS) {
+            out.bands[out.bandCount++] = band;
+            continue;
+        }
+        uint8_t oldest = 0;
+        for (uint8_t i = 1; i < out.bandCount; i++) {
+            if (out.bands[i].from < out.bands[oldest].from) oldest = i;
+        }
+        if (band.from > out.bands[oldest].from) out.bands[oldest] = band;
     }
 
     out.markCount = 0;

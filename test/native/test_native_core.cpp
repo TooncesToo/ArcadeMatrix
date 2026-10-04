@@ -606,6 +606,39 @@ void test_graph_layout_and_column_mapping(void) {
 }
 
 
+void test_graph_96_bands_and_newest_kept(void) {
+    // 96 one-slot bands, each its own colour, sharing edges: all of them are kept.
+    static char json[12000];
+    int n = snprintf(json, sizeof(json), "{\"slots\":96,\"series\":[{\"data\":[1]}],\"bands\":[");
+    for (int i = 0; i < 96; i++) {
+        n += snprintf(json + n, sizeof(json) - n, "%s{\"from\":%d,\"to\":%d,\"color\":\"#%02X0000\"}",
+                      i ? "," : "", i, i + 1, i);
+    }
+    snprintf(json + n, sizeof(json) - n, "]}");
+    g_graphDoc.clear();
+    TEST_ASSERT_TRUE(graph::parsePayload(json, g_graphDoc, g_graph));
+    TEST_ASSERT_EQUAL(96, g_graph.bandCount);
+    TEST_ASSERT_EQUAL(95, g_graph.bands[95].from);
+    TEST_ASSERT_EQUAL(96, g_graph.bands[95].to);
+    TEST_ASSERT_EQUAL_HEX8(0x5F, g_graph.bands[95].color.r);
+
+    // 100 bands, oldest first: the cap keeps the 96 newest (from 4..99), not the first 96.
+    n = snprintf(json, sizeof(json), "{\"slots\":100,\"series\":[{\"data\":[1]}],\"bands\":[");
+    for (int i = 0; i < 100; i++) n += snprintf(json + n, sizeof(json) - n, "%s{\"from\":%d,\"to\":%d}", i ? "," : "", i, i + 1);
+    snprintf(json + n, sizeof(json) - n, "]}");
+    g_graphDoc.clear();
+    TEST_ASSERT_TRUE(graph::parsePayload(json, g_graphDoc, g_graph));
+    TEST_ASSERT_EQUAL(96, g_graph.bandCount);
+    int minFrom = 1000;
+    bool has99 = false;
+    for (int i = 0; i < g_graph.bandCount; i++) {
+        if (g_graph.bands[i].from < minFrom) minFrom = g_graph.bands[i].from;
+        if (g_graph.bands[i].from == 99) has99 = true;
+    }
+    TEST_ASSERT_EQUAL(4, minFrom);
+    TEST_ASSERT_TRUE(has99);
+}
+
 void test_feed_values_payload(void) {
     TEST_ASSERT_TRUE(parseDoc("{\"v\":1,\"title\":\"ENERGY\",\"tiles\":["
         "{\"label\":\"HOUSE\",\"value\":\"2.8\",\"unit\":\"kW\",\"color\":\"#FFB000\"},"
@@ -717,6 +750,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_graph_layout_and_column_mapping);
     RUN_TEST(test_graph_negative_bars_and_zero_line);
     RUN_TEST(test_graph_lines_range_gaps_and_explicit_min_max);
+    RUN_TEST(test_graph_96_bands_and_newest_kept);
     RUN_TEST(test_feed_values_payload);
     RUN_TEST(test_feed_weather_payload_and_conditions);
 
