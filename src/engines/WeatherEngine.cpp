@@ -567,110 +567,51 @@ void WeatherEngine::drawForecast(const WeatherData& data) {
             matrix->print(desc);
         }
     } else if (mw >= 128 && mh <= 32) {
-        // --- 128x32 Widescreen Layout ---
-        int iconX = 4 + config_offset_x;
-        int iconY = (mh - 24) / 2 + config_offset_y;
-        drawIcon(data.iconCode, iconX, iconY);
-
-        int tempX = iconX + 28;
-        int maxLen = widthRef ? (int)strlen(widthRef) : max((int)strlen(tempMinStr), (int)strlen(tempMaxStr));
-        int textW = maxLen * 6;
-
-        matrix->setTextSize(1);
-        // Matin (Haut)
-        matrix->setTextColor(shadowColor);
-        matrix->setCursor(tempX + 1, 4 + 1 + config_offset_y);
-        matrix->print(tempMinStr);
-        matrix->setTextColor(colorMorning);
-        matrix->setCursor(tempX, 4 + config_offset_y);
-        matrix->print(tempMinStr);
-
-        // Afternoon (bottom row)
-        matrix->setTextColor(shadowColor);
-        matrix->setCursor(tempX + 1, 18 + 1 + config_offset_y);
-        matrix->print(tempMaxStr);
-        matrix->setTextColor(colorAfternoon);
-        matrix->setCursor(tempX, 18 + config_offset_y);
-        matrix->print(tempMaxStr);
-
-        // Right Column: Label on top, Condition on bottom
-        int rightX = tempX + textW + 6;
-        if (rightX < 60 + config_offset_x) rightX = 60 + config_offset_x;
-        int maxRightX = mw - 42;
-        if (rightX > maxRightX) rightX = maxRightX;
-
-        // Label
-        matrix->setTextColor(colorLabel);
-        matrix->setCursor(rightX, 4 + config_offset_y);
-        matrix->print(data.label);
-
-        // Condition
-        if (data.description.length() > 0) {
-            int availW = mw - rightX - 2;
-            int maxChars = max(1, availW / 6);
-            String desc = data.description;
-            if ((int)desc.length() > maxChars) {
-                if (maxChars > 3) {
-                    desc = desc.substring(0, maxChars - 1) + ".";
-                } else {
-                    desc = desc.substring(0, maxChars);
-                }
-            }
-            matrix->setTextColor(colorDesc);
-            matrix->setCursor(rightX, 18 + config_offset_y);
-            matrix->print(desc);
-        }
-    } else if (mh >= 64 && mw >= 128) {
-        // --- 128x64 Layout ---
-        int iconX = 6 + config_offset_x;
-        int iconY = (mh - 24) / 2 + config_offset_y;
-        drawIcon(data.iconCode, iconX, iconY);
-
-        int tempX = iconX + 30;
-        int textW = max((int)strlen(tempMinStr), (int)strlen(tempMaxStr)) * 12;
-
-        // Matin (Haut) - Size 2
-        matrix->setTextSize(2);
-        matrix->setTextColor(shadowColor);
-        matrix->setCursor(tempX + 1, 12 + 1 + config_offset_y);
-        matrix->print(tempMinStr);
-        matrix->setTextColor(colorMorning);
-        matrix->setCursor(tempX, 12 + config_offset_y);
-        matrix->print(tempMinStr);
-
-        // Afternoon (bottom row) - Size 2
-        matrix->setTextColor(shadowColor);
-        matrix->setCursor(tempX + 1, 38 + 1 + config_offset_y);
-        matrix->print(tempMaxStr);
-        matrix->setTextColor(colorAfternoon);
-        matrix->setCursor(tempX, 38 + config_offset_y);
-        matrix->print(tempMaxStr);
-
-        // Right Column
-        int rightX = tempX + textW + 8;
-        if (rightX < 72 + config_offset_x) rightX = 72 + config_offset_x;
-        int maxRightX = mw - 46;
-        if (rightX > maxRightX) rightX = maxRightX;
+        // --- 128x32 layout: icon | day label + condition | temperatures right-aligned (the 256x64
+        // arrangement at size 1; pixels shared with the RPi firmware) ---
+        auto textW = [](const char* t) { size_t n = strlen(t); return n ? (int)n * 6 - 1 : 0; };
+        const int iconX = 4 + config_offset_x;
+        drawIcon(data.iconCode, iconX, (mh - 24) / 2 + config_offset_y);
+        const int row1Y = 4 + config_offset_y;
+        const int row2Y = 18 + config_offset_y;
+        const int rightEdge = mw - 4 + config_offset_x;   // text ends with its last pixel on x = W-5
 
         matrix->setTextSize(1);
-        matrix->setTextColor(colorLabel);
-        matrix->setCursor(rightX, 14 + config_offset_y);
-        matrix->print(data.label);
+        auto printRight = [&](const char* t, int y, uint16_t c) {
+            const int x = rightEdge - textW(t);
+            matrix->setTextColor(shadowColor);
+            matrix->setCursor(x + 1, y + 1);
+            matrix->print(t);
+            matrix->setTextColor(c);
+            matrix->setCursor(x, y);
+            matrix->print(t);
+        };
+        printRight(tempMinStr, row1Y, colorMorning);
+        printRight(tempMaxStr, row2Y, colorAfternoon);
 
-        if (data.description.length() > 0) {
-            int availW = mw - rightX - 2;
-            int maxChars = max(1, availW / 6);
-            String desc = data.description;
-            if ((int)desc.length() > maxChars) {
-                if (maxChars > 3) {
-                    desc = desc.substring(0, maxChars - 1) + ".";
-                } else {
-                    desc = desc.substring(0, maxChars);
-                }
+        // Middle column: the widest temperature decides its width (on the live page only row 1 does,
+        // its longer second line may reach left under the label row).
+        const int midX = iconX + 24 + 4;
+        const int tempW = widthRef ? textW(widthRef) : max(textW(tempMinStr), textW(tempMaxStr));
+        const int midW = rightEdge - tempW - 4 - midX;
+        auto fit = [&](const String& longText, const String& shortText) {
+            if (longText.length() > 0 && textW(longText.c_str()) <= midW) return longText;
+            String t = shortText.length() > 0 ? shortText : longText;
+            const int maxChars = max(1, (midW + 1) / 6);
+            if ((int)t.length() > maxChars) {
+                t = (maxChars > 3) ? t.substring(0, maxChars - 1) + "." : t.substring(0, maxChars);
             }
+            return t;
+        };
+
+        matrix->setTextColor(colorLabel);
+        matrix->setCursor(midX, row1Y);
+        matrix->print(fit(data.labelLong, data.label));
+
+        if (data.description.length() > 0 || data.descriptionLong.length() > 0) {
             matrix->setTextColor(colorDesc);
-            matrix->setCursor(rightX, 38 + config_offset_y);
-            matrix->print(desc);
+            matrix->setCursor(midX, row2Y);
+            matrix->print(fit(data.descriptionLong, data.description));
         }
     } else if (mw <= 64 && mh <= 32) {
         // --- 64x32 Compact Horizontal Layout ---
