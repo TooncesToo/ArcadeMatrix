@@ -201,7 +201,10 @@ void MarioClock::update() {
         if (airborne) {
             blitSprite(MARIO_JUMP, MARIO_JUMP_W, MARIO_H, (int)runnerX, y, true);
         } else {
-            blitSprite(MARIO_IDLE, MARIO_W, MARIO_H, (int)runnerX, y, true);
+            // Running in or out: the NES walk cycle, one frame per 6 px travelled so the legs keep pace with
+            // the speed setting. The run frames sit in a 16 px cell whose column 2 lines up with the idle sprite.
+            const int f = (((int)runnerX + 1200) / 6) % 3;
+            blitSprite(MARIO_RUN[f], MARIO_RUN_W[f], MARIO_H, (int)runnerX - 2 + MARIO_RUN_LEFT[f], y, true);
         }
     }
 }
