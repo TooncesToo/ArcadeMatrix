@@ -151,7 +151,8 @@ void MarioClock::update() {
     if (shownHH[0] == '-') { strcpy(shownHH, hh); strcpy(shownMM, mm); m_dirty = 2; }
 
     const int targetX = ((jumpTarget == 0) ? hourX : minuteX) + BLOCK_W / 2 - MARIO_W / 2;
-    const float pace = 34.0f * (speedPct / 100.0f);
+    // 100 % = Super Mario Bros walking pace (about 85 px/s; the NES screen is 256 px wide, like the 256x64 panel).
+    const float pace = 85.0f * (speedPct / 100.0f);
 
     switch (phase) {
         case Phase::Waiting:
@@ -165,7 +166,7 @@ void MarioClock::update() {
             }
             break;
         case Phase::Jump:
-            jumpT += dt * 1.6f * (speedPct / 100.0f);
+            jumpT += dt * 4.0f * (speedPct / 100.0f);   // jump timed to match the walking pace
             if (jumpT >= 0.5f && pendingDigits) {     // struck at the top of the arc
                 pendingDigits = false;
                 blockBounce[jumpTarget] = 0.001f;
