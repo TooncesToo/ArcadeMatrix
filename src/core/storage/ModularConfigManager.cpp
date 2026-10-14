@@ -66,7 +66,7 @@ bool ModularConfigManager::loadAll(ConfigLoader& config) {
     // Load domain files
     bool hwOk = loadHardware(config.matrix);
     bool sysOk = loadSystem(config.system);
-    bool netOk = loadNetwork(config.wifi, config.mqtt);
+    bool netOk = loadNetwork(config.wifi, config.mqtt, config.dataMqtt);
     bool rotOk = loadPlaylist(config.rotation);
 
     if (!hwOk || !sysOk || !netOk || !rotOk) {
@@ -109,7 +109,7 @@ bool ModularConfigManager::saveAll(const ConfigLoader& config) {
 
     bool hwOk = saveHardware(config.matrix);
     bool sysOk = saveSystem(config.system);
-    bool netOk = saveNetwork(config.wifi, config.mqtt);
+    bool netOk = saveNetwork(config.wifi, config.mqtt, config.dataMqtt);
     bool rotOk = savePlaylist(config.rotation);
 
     // Persist all instances
@@ -296,7 +296,7 @@ bool ModularConfigManager::saveSystem(const SystemConfig& system) {
     return _storage.writeStringAtomic("/config/system.json", out);
 }
 
-bool ModularConfigManager::loadNetwork(WifiConfig& outWifi, MqttConfig& outMqtt) {
+bool ModularConfigManager::loadNetwork(WifiConfig& outWifi, MqttConfig& outMqtt, DataMqttConfig& outDataMqtt) {
     String content;
     if (!_storage.readString("/config/network.json", content)) {
         return false;
@@ -322,10 +322,18 @@ bool ModularConfigManager::loadNetwork(WifiConfig& outWifi, MqttConfig& outMqtt)
         if (m.containsKey("allow_overlay")) outMqtt.allow_overlay = m["allow_overlay"].as<bool>();
         else if (m.containsKey("allowOverlay")) outMqtt.allow_overlay = m["allowOverlay"].as<bool>();
     }
+    // Data MQTT (MQTT Data engine broker), same "data_mqtt" object as the legacy /config.json.
+    if (doc.containsKey("data_mqtt")) {
+        JsonObjectConst d = doc["data_mqtt"];
+        if (d.containsKey("broker")) outDataMqtt.broker = d["broker"].as<String>();
+        outDataMqtt.port = d["port"] | outDataMqtt.port;
+        if (d.containsKey("user")) outDataMqtt.user = d["user"].as<String>();
+        if (d.containsKey("pass")) outDataMqtt.pass = d["pass"].as<String>();
+    }
     return true;
 }
 
-bool ModularConfigManager::saveNetwork(const WifiConfig& wifi, const MqttConfig& mqtt) {
+bool ModularConfigManager::saveNetwork(const WifiConfig& wifi, const MqttConfig& mqtt, const DataMqttConfig& dataMqtt) {
     StaticJsonDocument<1024> doc;
     JsonObject w = doc.createNestedObject("wifi");
     w["ssid"] = wifi.ssid;
@@ -340,6 +348,12 @@ bool ModularConfigManager::saveNetwork(const WifiConfig& wifi, const MqttConfig&
     m["pass"] = mqtt.pass;
     m["deviceName"] = mqtt.deviceName;
     m["allow_overlay"] = mqtt.allow_overlay;
+
+    JsonObject d = doc.createNestedObject("data_mqtt");
+    d["broker"] = dataMqtt.broker;
+    d["port"] = dataMqtt.port;
+    d["user"] = dataMqtt.user;
+    d["pass"] = dataMqtt.pass;
 
     String out;
     serializeJsonPretty(doc, out);

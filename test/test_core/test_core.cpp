@@ -3103,6 +3103,31 @@ void test_modular_playlist_long_rotation_round_trip() {
     }
 }
 
+// The Data MQTT broker settings must survive a save/load of /config/network.json; they were
+// missing from the modular files, so they were lost on the first reboot after the migration.
+void test_modular_network_keeps_data_mqtt() {
+    MemoryConfigStorage storage;
+    ModularConfigManager mgr(storage);
+
+    WifiConfig wifi;
+    MqttConfig mqtt;
+    DataMqttConfig dataMqtt;
+    dataMqtt.broker = "192.168.1.10";
+    dataMqtt.port = 1884;
+    dataMqtt.user = "sign";
+    dataMqtt.pass = "secret";
+    TEST_ASSERT_TRUE(mgr.saveNetwork(wifi, mqtt, dataMqtt));
+
+    WifiConfig wifi2;
+    MqttConfig mqtt2;
+    DataMqttConfig loaded;
+    TEST_ASSERT_TRUE(mgr.loadNetwork(wifi2, mqtt2, loaded));
+    TEST_ASSERT_EQUAL_STRING("192.168.1.10", loaded.broker.c_str());
+    TEST_ASSERT_EQUAL(1884, loaded.port);
+    TEST_ASSERT_EQUAL_STRING("sign", loaded.user.c_str());
+    TEST_ASSERT_EQUAL_STRING("secret", loaded.pass.c_str());
+}
+
 void test_modular_config_migration_and_partitioning(void) {
     MemoryConfigStorage storage;
 
@@ -3448,6 +3473,7 @@ void setup() {
     RUN_TEST(test_working_set_cache_synchronization_and_eviction);
     RUN_TEST(test_modular_config_migration_and_partitioning);
     RUN_TEST(test_modular_playlist_long_rotation_round_trip);
+    RUN_TEST(test_modular_network_keeps_data_mqtt);
 
     // =========================================================================
     // 11. Runtime Engine Capability & Compatibility System
