@@ -5,6 +5,7 @@
 #include "ModularConfigManager.h"
 #include "../ConfigSanitizer.h"
 #include "../Logger.h"
+#include "../SpiRamJsonDocument.h"
 #include <ArduinoJson.h>
 
 ModularConfigManager::ModularConfigManager(IConfigStorage& storage)
@@ -350,8 +351,21 @@ bool ModularConfigManager::loadPlaylist(std::vector<RotationEntry>& outRotation)
     if (!_storage.readString("/config/playlist.json", content)) {
         return false;
     }
-    StaticJsonDocument<2048> doc;
-    if (deserializeJson(doc, content)) return false;
+    // Capacity derived from the file: a fixed 2048 bytes could not hold a rotation of
+    // roughly 23+ entries with overlays, so the load failed and the defaults replaced the
+    // user's rotation. Every '{' opens an entry (up to 3 members) or its overlays object
+    // (1 member), and copied strings never exceed the file length.
+    size_t objects = 0;
+    for (size_t i = 0; i < content.length(); i++) {
+        if (content[i] == '{') objects++;
+    }
+    SpiRamJsonDocument doc(JSON_ARRAY_SIZE(objects) + objects * JSON_OBJECT_SIZE(3)
+                           + content.length() + 256);
+    DeserializationError err = deserializeJson(doc, content);
+    if (err) {
+        LOGE("ModularConfigManager", "Cannot parse /config/playlist.json: %s", err.c_str());
+        return false;
+    }
 
     outRotation.clear();
     JsonArrayConst arr = doc.as<JsonArrayConst>();
@@ -378,7 +392,14 @@ bool ModularConfigManager::loadPlaylist(std::vector<RotationEntry>& outRotation)
 }
 
 bool ModularConfigManager::savePlaylist(const std::vector<RotationEntry>& rotation) {
-    StaticJsonDocument<2048> doc;
+    // Capacity derived from the rotation length (same sizing as GET /api/rotation).
+    size_t stringBytes = 0;
+    for (const auto& rot : rotation) {
+        stringBytes += rot.instance_id.length() + 1;
+    }
+    SpiRamJsonDocument doc(JSON_ARRAY_SIZE(rotation.size())
+                           + rotation.size() * (JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(1))
+                           + stringBytes + 256);
     JsonArray arr = doc.to<JsonArray>();
     for (const auto& rot : rotation) {
         JsonObject rObj = arr.createNestedObject();
@@ -388,6 +409,12 @@ bool ModularConfigManager::savePlaylist(const std::vector<RotationEntry>& rotati
             JsonObject ov = rObj.createNestedObject("overlays");
             ov["fighter"] = (rot.overlays.fighter == FighterOverride::Enabled);
         }
+    }
+    if (doc.overflowed()) {
+        // Never write a truncated playlist: the next boot would load the shortened list.
+        LOGE("ModularConfigManager", "Playlist of %u entries overflowed its document; not saved.",
+             (unsigned)rotation.size());
+        return false;
     }
 
     String out;
