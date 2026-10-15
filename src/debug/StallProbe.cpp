@@ -69,6 +69,35 @@ static void stallProbeTask(void*) {
     }
 }
 
+
+// Test only: cut /gifs/Marquee/index.txt back to its first 416 lines, recreating the truncated
+// index that produced the watchdog resets, so the GifEngine fix runs against it on hardware.
+#include "core/SDUtils.h"
+#include "core/SdLockGuard.h"
+static void truncateMarqueeIndexForTest() {
+    const char* path = "/gifs/Marquee/index.txt";
+    const int keepLines = 416;
+    SdLockGuard guard(pdMS_TO_TICKS(10000));
+    if (!guard || !sd.exists(path)) { Serial.println("[StallProbe] index truncate: skipped"); return; }
+    FsFile in = sd.open(path, FILE_OPEN_READ);
+    if (!in) return;
+    size_t size = in.size();
+    char* buf = (char*)ps_malloc(size + 1);
+    if (!buf) { in.close(); return; }
+    size_t got = in.read((uint8_t*)buf, size); in.close();
+    int lines = 0; size_t cut = got;
+    for (size_t i = 0; i < got; i++) if (buf[i] == '\n' && ++lines == keepLines) { cut = i + 1; break; }
+    if (lines >= keepLines && cut < got) {
+        FsFile out = sd.open(path, FILE_OPEN_WRITE);
+        if (out) { out.write((const uint8_t*)buf, cut); out.close(); }
+        Serial.printf("[StallProbe] index truncate: %u -> %u bytes (%d lines)\n", (unsigned)got, (unsigned)cut, keepLines);
+    } else {
+        Serial.printf("[StallProbe] index truncate: already %d lines\n", lines);
+    }
+    free(buf);
+}
+
 void startStallProbe() {
+    truncateMarqueeIndexForTest();
     xTaskCreatePinnedToCore(stallProbeTask, "stall_probe", 4096, nullptr, 2, nullptr, 0);
 }
