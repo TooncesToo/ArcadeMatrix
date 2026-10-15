@@ -1192,18 +1192,35 @@ bool GifEngine::pickNextCandidate(char* outPath, size_t outMaxLen, bool& outIsPn
                         if (totalValidEntries > 0) {
                             // Pass 2: Pick a random line and seek to it (trying up to 4 picks if recently played)
                             size_t chosenIdx = (size_t)random(totalValidEntries);
+                            bool recounted = false;
                             for (int retry = 0; retry < 4; retry++) {
                                 indexFile.seek(0);
                                 size_t currentValid = 0;
+                                bool found = false;
                                 while (indexFile.available()) {
                                     if (readCleanIndexLine(indexFile, lineBuf, sizeof(lineBuf))) {
                                         if (currentValid == chosenIdx) {
                                             strncpy(selectedFile, lineBuf, sizeof(selectedFile) - 1);
                                             selectedFile[sizeof(selectedFile) - 1] = '\0';
+                                            found = true;
                                             break;
                                         }
                                         currentValid++;
                                     }
+                                }
+                                if (!found && !recounted && currentValid > 0 && currentValid < totalValidEntries) {
+                                    // The cached count (playlists.json) is larger than this index.txt, e.g. after an
+                                    // interrupted index write. A pick past the end would otherwise leave selectedFile
+                                    // empty and fall through to the full directory scan below, which holds the SD lock
+                                    // for tens of seconds on a large folder. Re-pick within the lines that exist.
+                                    LOGW("GifEngine", "%s/index.txt has %u entries but playlists.json lists %u; using the index count.",
+                                         pPath.c_str(), (unsigned)currentValid, (unsigned)totalValidEntries);
+                                    totalValidEntries = currentValid;
+                                    if (pIndex < (int)playlistWeights.size()) playlistWeights[pIndex] = currentValid;
+                                    recounted = true;
+                                    chosenIdx = (size_t)random(totalValidEntries);
+                                    retry--;
+                                    continue;
                                 }
                                 if (totalValidEntries <= 1) break;
                                 String candidate = pPath + "/" + selectedFile;
@@ -1318,6 +1335,22 @@ void GifEngine::loadNextFileInPlaylist() {
         return;
     }
 
+    // Core 0 is still picking or reading the next file. Picking here as well would make Core 1 wait on the
+    // SD lock the preload task holds, so keep the current GIF looping until the preload is ready (bounded).
+    if (isPlaying && !isRaw && !isPng && gif && playlistMode && remainingGifsToPlay != 0 &&
+        !m_preloadExited.load(std::memory_order_acquire) &&
+        !m_preloaded.ready.load(std::memory_order_acquire)) {
+        if (!m_waitingForPreload) {
+            m_waitingForPreload = true;
+            m_preloadWaitStartMs = millis();
+        }
+        if (millis() - m_preloadWaitStartMs < kPreloadWaitMs) {
+            gif->reset();
+            return;
+        }
+    }
+    m_waitingForPreload = false;
+
     if (remainingGifsToPlay > 0) {
         remainingGifsToPlay--;
     } else if (remainingGifsToPlay == 0) {
@@ -1410,13 +1443,18 @@ void GifEngine::stop() {
     playlistMode = false;
     hasPendingPlaylists = false;
     freePsramBuffer();
-    freePreloadBuffer();
+    // The preloaded next file is deliberately kept: loadNextFileInPlaylist() calls stop() right before
+    // swapping it in, and the preload task may be writing m_preloaded while it is not ready. It is freed
+    // where Core 1 owns it (ready == true) or after the preload task has exited.
 }
 
 bool GifEngine::loop() {
     instance = this;
     if (hasPendingPlaylists) {
         stop();
+        // A file preloaded from the previous playlist set must not play after the switch. Core 1 owns
+        // m_preloaded once it is ready, so it can be dropped here without racing the preload task.
+        if (m_preloaded.ready.load(std::memory_order_acquire)) freePreloadBuffer();
         playlists = pendingPlaylists;
         playlistWeights.clear();   // re-read the folder sizes for the new set
         playlistMode = true;
