@@ -749,6 +749,9 @@ void GifEngine::stopPreloadTask() {
 
 void GifEngine::preloadTaskEntry(void* arg) {
     auto* self = static_cast<GifEngine*>(arg);
+    // AppRuntime's randomSeed() makes random() use rand(), whose state newlib keeps per task. A freshly
+    // created task starts from the default seed, so without this every preload task picks the same files.
+    srand(esp_random());
     self->preloadWorker();
     self->m_preloadExited.store(true, std::memory_order_release);
     vTaskDelete(nullptr);
