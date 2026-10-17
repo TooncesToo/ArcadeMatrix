@@ -226,6 +226,7 @@ private:
     static void preloadTaskEntry(void* arg);
     void preloadWorker();
     void freePreloadBuffer();
+    bool preloadMatchesPlaylists() const;
     bool pickNextCandidate(char* outPath, size_t outMaxLen, bool& outIsPng, bool& outIsRaw);
 
     /**
